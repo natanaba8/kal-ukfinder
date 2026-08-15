@@ -1,0 +1,24 @@
+{
+  "name": "kal-ukfinder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kal-UKFinder — UK jobs, careers news, government policy briefings and an AI career coach, on mobile and web.",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix apps/mobile install && npm --prefix apps/admin install",
+    "server": "npm --prefix server run dev",
+    "app": "npm --prefix apps/mobile run start",
+    "web": "npm --prefix apps/mobile run web",
+    "admin": "npm --prefix apps/admin run dev",
+    "android": "npm --prefix apps/mobile run android",
+    "ios": "npm --prefix apps/mobile run ios",
+    "ingest": "npm --prefix server run ingest",
+    "digest": "npm --prefix server run digest",
+    "typecheck": "npm --prefix apps/mobile run typecheck && npm --prefix apps/admin run typecheck",
+    "build:web": "npm --prefix apps/mobile run build:web",
+    "build:admin": "npm --prefix apps/admin run build",
+    "test": "npm --prefix server test"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

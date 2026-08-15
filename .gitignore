@@ -1,0 +1,29 @@
+node_modules/
+.env
+.env.local
+
+# admin panel build output
+apps/admin/dist/
+
+# server
+server/data/*.db
+server/data/*.db-journal
+server/data/*.db-wal
+server/data/*.db-shm
+
+# expo
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# misc
+.DS_Store
+npm-debug.log*
+yarn-error.log*
+*.tsbuildinfo

@@ -20,15 +20,26 @@ import type {
   User,
 } from './types';
 
+/** True when the web build is being served from a real domain, not a dev machine. */
+export const isDeployedWeb = (): boolean => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  const { hostname } = window.location;
+  return hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '';
+};
+
 /**
  * Where the API lives.
  *
  * Order of preference:
- *  1. EXPO_PUBLIC_API_URL — set this for a deployed backend.
+ *  1. EXPO_PUBLIC_API_URL — set this for a deployed backend. Read at build
+ *     time, so changing it means rebuilding.
  *  2. The host serving the Metro bundle, on port 4000. This is what makes a
  *     physical phone work out of the box: it picks up your laptop's LAN IP
  *     instead of localhost, which on a device means the phone itself.
- *  3. http://localhost:4000 for web and simulators.
+ *  3. On a deployed site, the same origin — so putting the API behind a
+ *     reverse proxy at /api on the same domain works with no configuration.
+ *     Defaulting to localhost here would point at the *visitor's* machine.
+ *  4. http://localhost:4000 for local web and simulators.
  */
 const inferBaseUrl = (): string => {
   const explicit = process.env.EXPO_PUBLIC_API_URL;
@@ -38,10 +49,32 @@ const inferBaseUrl = (): string => {
   const host = hostUri?.split(':')[0];
   if (host && Platform.OS !== 'web') return `http://${host}:4000`;
 
+  if (isDeployedWeb()) return window.location.origin;
+
   return 'http://localhost:4000';
 };
 
 export const API_BASE_URL = inferBaseUrl();
+
+/**
+ * The message shown when the API cannot be reached. A deployed site and a
+ * developer's laptop need completely different advice, so say the right thing.
+ */
+const unreachableMessage = (): string => {
+  if (isDeployedWeb() && !process.env.EXPO_PUBLIC_API_URL) {
+    return (
+      'This site has no backend configured yet. Deploy the Kal-UKFinder API, then set ' +
+      'EXPO_PUBLIC_API_URL to its address in your hosting project and redeploy. ' +
+      'See "Deploying" in the README.'
+    );
+  }
+
+  if (isDeployedWeb()) {
+    return `The Kal-UKFinder API at ${API_BASE_URL} is not responding. It may be asleep, down, or refusing this origin — check CORS_ORIGIN includes ${window.location.origin}.`;
+  }
+
+  return `Cannot reach the Kal-UKFinder server at ${API_BASE_URL}. Start it with "npm run dev" from the project root.`;
+};
 
 export class ApiError extends Error {
   status: number;
@@ -82,10 +115,7 @@ const send = async (path: string, options: RequestInit) => {
       },
     });
   } catch {
-    throw new ApiError(
-      `Cannot reach the Kal-UKFinder server at ${API_BASE_URL}. Start it with "npm run server" from the project root.`,
-      0,
-    );
+    throw new ApiError(unreachableMessage(), 0, undefined);
   }
 };
 

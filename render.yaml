@@ -1,0 +1,54 @@
+# One-click deployment for the Kal-UKFinder API.
+#
+# Render is used rather than Vercel because the API needs two things serverless
+# functions do not provide: a writable database file and a scheduler that stays
+# alive between requests.
+#
+# Deploy:  render.com → New → Blueprint → point at this repository.
+# Then set EXPO_PUBLIC_API_URL (web app) and VITE_API_URL (admin panel) in
+# Vercel to the URL Render gives you, and redeploy both.
+services:
+  - type: web
+    name: kal-ukfinder-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.19.0
+
+      # Both Vercel origins, comma separated. Update these to your own URLs.
+      - key: CORS_ORIGIN
+        value: https://kal-ukfinder.vercel.app,https://kal-ukfinder-admin.vercel.app
+
+      # The first administrator is created on boot. Set a real password in the
+      # Render dashboard — `sync: false` keeps it out of the repository.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+
+      # Optional. Without them the app still runs on public RSS feeds and the
+      # rule-based summariser.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false
+
+      # A disk keeps accounts and saved items across restarts. Without one the
+      # database is rebuilt from the feeds on every boot — the content comes
+      # back, but user accounts do not.
+      - key: DB_PATH
+        value: /var/data/kal-ukfinder.db
+
+    # Comment this out on the free plan, which does not include disks. The app
+    # still works: migrations run and the sources re-ingest on startup.
+    disk:
+      name: kal-ukfinder-data
+      mountPath: /var/data
+      sizeGB: 1

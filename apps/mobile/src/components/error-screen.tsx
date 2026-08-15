@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, isDeployedWeb } from '@/lib/api';
 
 /**
  * Shown by expo-router when a screen throws during render.
@@ -21,9 +21,11 @@ export function ErrorScreen({ error, retry }: { error: Error; retry: () => void 
         <Text style={styles.title}>The app hit an error</Text>
 
         <Text style={styles.lead}>
-          {looksLikeNetwork
-            ? 'It could not reach the Kal-UKFinder API. Start it with "npm run dev" from the project root, and make sure this device is on the same Wi-Fi as your computer.'
-            : 'Something threw while rendering. The details are below — send them over and they can be fixed.'}
+          {!looksLikeNetwork
+            ? 'Something threw while rendering. The details are below — send them over and they can be fixed.'
+            : isDeployedWeb()
+              ? 'This site could not reach its backend. The message below says what to do.'
+              : 'It could not reach the Kal-UKFinder API. Start it with "npm run dev" from the project root, and make sure this device is on the same Wi-Fi as your computer.'}
         </Text>
 
         <View style={styles.card}>

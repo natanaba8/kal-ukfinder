@@ -1,5 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm --prefix apps/mobile install && npm run build:web",
   "outputDirectory": "apps/mobile/dist",
   "installCommand": "npm install --ignore-scripts",
@@ -7,20 +6,40 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/item/:id", "destination": "/item/_id.html" },
-    { "source": "/job/:id", "destination": "/job/_id.html" }
+    {
+      "source": "/item/:id",
+      "destination": "/item/_id.html"
+    },
+    {
+      "source": "/job/:id",
+      "destination": "/job/_id.html"
+    }
   ],
   "headers": [
     {
       "source": "/_expo/static/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "no-referrer" },
-        { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        }
       ]
     }
   ]

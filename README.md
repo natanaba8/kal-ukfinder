@@ -237,6 +237,7 @@ kal-ukfinder/
 │
 ├── vercel.json                  Web app deployment
 ├── apps/admin/vercel.json       Admin panel deployment
+├── render.yaml                  API deployment (one-click blueprint)
 └── docs/integration-plan.md     Architecture analysis and build record
 ```
 
@@ -342,7 +343,11 @@ This is a monorepo with three deployables, and they do not all belong in the sam
 | --- | --- | --- |
 | Web app | **Vercel** (static) | Pre-rendered HTML per route |
 | Admin panel | **Vercel** (static) | Vite SPA |
-| API | **Not Vercel** — Render, Railway, Fly, or any VPS | Needs a persistent SQLite file and a long-running scheduler |
+| API | **Not Vercel** — Render, Railway, Fly, or any VPS | Needs a writable database file and a long-running scheduler |
+
+**Deploy the API first.** Both front-ends are static and useless on their own — they have to be told where
+the backend is, at build time. Doing Vercel first means a site that loads and then reports it has no
+backend.
 
 ### Vercel
 
@@ -399,15 +404,34 @@ npm run preview:web    # serves dist exactly as Vercel will, on :4173
 `scripts/serve-dist.mjs` mirrors `vercel.json` — the same cleanUrls, rewrites and fallback. If a URL works
 there it will work on Vercel. Verified across all 25 routes, including `/item/:id` and `/job/:id`.
 
-### The API
+### The API — deploy this first
 
-Any Node 22+ host with a disk. Set the env vars from `.env.example`, mount a volume for
-`server/data/kal-ukfinder.db`, run `npm start`. Migrations apply on boot.
+**The Vercel site is inert without it.** With no API the app loads, renders its shell, and then every
+screen reports that it cannot reach a backend. This is the step people miss.
 
-It is deliberately **not** a Vercel deployment: serverless functions have an ephemeral filesystem, so the
-SQLite database would vanish between invocations, and `node-cron` cannot keep a scheduler alive. To host it
-on Vercel anyway you would need to move the store to a hosted Postgres and replace the scheduler with Vercel
-Cron — a real change, not a config tweak. `.vercelignore` keeps `server/` out of the web deployment.
+`render.yaml` in the repo root makes it one click:
+
+1. **render.com → New → Blueprint** → point it at this repository. It reads `render.yaml`, builds
+   `server/`, and health-checks `/api/health`.
+2. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in the Render dashboard (they are marked `sync: false`, so they
+   never live in the repo). The first administrator is created on boot.
+3. Edit `CORS_ORIGIN` in `render.yaml` to your two Vercel URLs.
+4. Copy the URL Render gives you, e.g. `https://kal-ukfinder-api.onrender.com`.
+
+Then in Vercel, set `EXPO_PUBLIC_API_URL` (web app) and `VITE_API_URL` (admin panel) to that URL and
+**redeploy both** — those are build-time variables, so setting them alone changes nothing.
+
+On Render's free plan, comment out the `disk:` block. The app still works: migrations run and the 26
+sources re-ingest on startup, so content comes back by itself. What does not survive a restart is user
+accounts and saved items — fine for a demo, not for real use.
+
+Railway, Fly.io or any VPS work equally well: set the env vars from `.env.example`, give it a writable
+path for `server/data/kal-ukfinder.db`, run `npm start`.
+
+**Why not Vercel.** Serverless functions have an ephemeral filesystem, so the SQLite database would vanish
+between invocations, and `node-cron` cannot keep a scheduler alive between requests. Hosting the API on
+Vercel would mean moving the store to a hosted Postgres and replacing the scheduler with Vercel Cron — a
+real change, not a config tweak. `.vercelignore` keeps `server/` out of the web deployment.
 
 ### Mobile
 
@@ -440,9 +464,15 @@ the admin panel. If only the deep links 404 (`/item/abc`), the build skipped `sc
 build with `npm run build:web`, not `expo export` directly. Reproduce either locally with
 `npm run preview:web`.
 
-**The deployed site loads but says it cannot reach the server** — `EXPO_PUBLIC_API_URL` (web) and
-`VITE_API_URL` (admin) are read at build time. Set them in Vercel and redeploy; changing them without a
-redeploy does nothing.
+**The deployed site loads but says it has no backend** — you have not deployed the API yet. The Vercel
+projects are static front-ends; they need somewhere to talk to. Follow "The API — deploy this first"
+above, then set `EXPO_PUBLIC_API_URL` (web) and `VITE_API_URL` (admin) and **redeploy both** — those are
+read at build time, so setting them without redeploying does nothing.
+
+**The deployed site says the API is "not responding"** — the URL is configured but the request failed.
+Three usual causes: the API is asleep (Render's free plan idles after inactivity — the first request takes
+~30 seconds), `CORS_ORIGIN` on the API does not include your Vercel origin, or the API is serving `http://`
+while the site is `https://`, which browsers block as mixed content.
 
 **Red error screen on the phone** — the app shows a readable error screen rather than a bare red box: it
 names what failed, the API address it tried, and the first lines of the stack. Screenshot that.

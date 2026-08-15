@@ -20,6 +20,7 @@ import {
 import { GsListItem, GsRoot } from '@/components/ui/gs/screen';
 import { TOPICS, topicLabel } from '@/constants/taxonomy';
 import { api } from '@/lib/api';
+import { forAudience } from '@/lib/audience';
 
 const PAGE_SIZE = 20;
 
@@ -177,7 +178,10 @@ export default function PolicyScreen() {
                 <Text tone="dim">
                   {topic
                     ? `No recent official publications tagged ${topicLabel(topic)}. Try another department or clear the filter.`
-                    : 'No official publications stored yet. Pull to refresh once the server has collected a round.'}
+                    : forAudience(
+                        'No official publications yet. Pull down to refresh in a minute.',
+                        'No official publications stored yet. Pull to refresh once the server has collected a round.',
+                      )}
                 </Text>
               </Card>
             )}

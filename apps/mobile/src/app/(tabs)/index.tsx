@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { TOPICS, topicEmoji, topicLabel } from '@/constants/taxonomy';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/lib/api';
+import { forAudience, isDevBuild } from '@/lib/audience';
 import { useSession } from '@/lib/session';
 
 const QUICK_ACTIONS = [
@@ -104,7 +105,10 @@ export default function BriefingScreen() {
           body={
             topicFilter
               ? `No recent stories tagged ${topicLabel(topicFilter)}. Try another topic or pull to refresh.`
-              : 'The server has not ingested any stories yet. Run "npm run ingest" in the server folder, or pull to refresh in a minute.'
+              : forAudience(
+                  'Today’s briefing is still being gathered. Pull down to refresh in a minute.',
+                  'The server has not collected any stories yet. Run "npm run ingest" in the server folder, or pull to refresh in a minute.',
+                )
           }
         />
       ) : null}
@@ -132,7 +136,7 @@ export default function BriefingScreen() {
         </View>
       ) : null}
 
-      {status.data && !status.data.ai.enabled ? (
+      {isDevBuild && status.data && !status.data.ai.enabled ? (
         <Card tone="flat">
           <ThemedText type="smallBold">Running without Gemini</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">

@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+import { isDevBuild } from './audience';
 import type {
   AnswerFeedback,
   ApiStatus,
@@ -61,19 +62,21 @@ export const API_BASE_URL = inferBaseUrl();
  * developer's laptop need completely different advice, so say the right thing.
  */
 const unreachableMessage = (): string => {
-  if (isDeployedWeb() && !process.env.EXPO_PUBLIC_API_URL) {
+  if (isDevBuild) {
+    return `Cannot reach the Kal-UKFinder server at ${API_BASE_URL}. Start it with "npm run dev" from the project root.`;
+  }
+
+  if (!process.env.EXPO_PUBLIC_API_URL) {
     return (
-      'This site has no backend configured yet. Deploy the Kal-UKFinder API, then set ' +
-      'EXPO_PUBLIC_API_URL to its address in your hosting project and redeploy. ' +
-      'See "Deploying" in the README.'
+      'This app has no backend configured. Deploy the Kal-UKFinder API, set EXPO_PUBLIC_API_URL to its ' +
+      'address in your hosting project, and redeploy. See "Deploying" in the README.'
     );
   }
 
-  if (isDeployedWeb()) {
-    return `The Kal-UKFinder API at ${API_BASE_URL} is not responding. It may be asleep, down, or refusing this origin — check CORS_ORIGIN includes ${window.location.origin}.`;
-  }
-
-  return `Cannot reach the Kal-UKFinder server at ${API_BASE_URL}. Start it with "npm run dev" from the project root.`;
+  return (
+    `The Kal-UKFinder service is not responding right now. It may be starting up — free hosting plans ` +
+    `sleep after a period of inactivity and can take up to a minute to wake. Please try again shortly.`
+  );
 };
 
 export class ApiError extends Error {

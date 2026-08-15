@@ -1,6 +1,7 @@
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { API_BASE_URL, isDeployedWeb } from '@/lib/api';
+import { isDevBuild } from '@/lib/audience';
 
 /**
  * Shown by expo-router when a screen throws during render.
@@ -35,31 +36,39 @@ export function ErrorScreen({ error, retry }: { error: Error; retry: () => void 
           </Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>API ADDRESS</Text>
-          <Text style={styles.mono} selectable>
-            {API_BASE_URL}
-          </Text>
-        </View>
+        {/* Addresses and stack traces help a developer and mean nothing to a
+            visitor, so they only appear in a development build. */}
+        {isDevBuild ? (
+          <>
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>API ADDRESS</Text>
+              <Text style={styles.mono} selectable>
+                {API_BASE_URL}
+              </Text>
+            </View>
 
-        {error?.stack ? (
-          <View style={styles.card}>
-            <Text style={styles.cardLabel}>STACK</Text>
-            <Text style={styles.mono} selectable>
-              {error.stack.split('\n').slice(0, 12).join('\n')}
-            </Text>
-          </View>
+            {error?.stack ? (
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>STACK</Text>
+                <Text style={styles.mono} selectable>
+                  {error.stack.split('\n').slice(0, 12).join('\n')}
+                </Text>
+              </View>
+            ) : null}
+          </>
         ) : null}
 
         <TouchableOpacity style={styles.button} onPress={retry} accessibilityRole="button">
           <Text style={styles.buttonText}>Try again</Text>
         </TouchableOpacity>
 
-        <Text style={styles.hint}>
-          If a fix does not seem to take effect, the bundler cache is probably stale. Stop the app and run
-          {'\n'}
-          <Text style={styles.mono}>npm run clean</Text> then <Text style={styles.mono}>npm run dev:clean</Text>.
-        </Text>
+        {isDevBuild ? (
+          <Text style={styles.hint}>
+            If a fix does not seem to take effect, the bundler cache is probably stale. Stop the app and run
+            {'\n'}
+            <Text style={styles.mono}>npm run clean</Text> then <Text style={styles.mono}>npm run dev:clean</Text>.
+          </Text>
+        ) : null}
       </ScrollView>
     </View>
   );

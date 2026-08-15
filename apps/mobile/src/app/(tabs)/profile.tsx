@@ -13,6 +13,7 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { AUDIENCES, EXPERIENCE_LEVELS, TOPICS, UK_REGIONS } from '@/constants/taxonomy';
 import { Spacing } from '@/constants/theme';
 import { API_BASE_URL, api } from '@/lib/api';
+import { forAudience, isDevBuild } from '@/lib/audience';
 import { hourLabel } from '@/lib/format';
 import {
   notificationsSupported,
@@ -355,7 +356,7 @@ export default function ProfileScreen() {
       <Card tone="flat">
         <SectionHeader title="Server" />
         <ThemedText type="small" themeColor="textSecondary">
-          API: {API_BASE_URL}
+          {isDevBuild ? `API: ${API_BASE_URL}` : 'Connected'}
         </ThemedText>
         {status.data ? (
           <ThemedText type="small" themeColor="textSecondary">
@@ -366,7 +367,10 @@ export default function ProfileScreen() {
           </ThemedText>
         ) : (
           <ThemedText type="small" themeColor="textSecondary">
-            Not connected. Start the API with “npm run server” from the project root.
+            {forAudience(
+              'Not connected. The service may be starting up — try again shortly.',
+              'Not connected. Start the API with “npm run dev” from the project root.',
+            )}
           </ThemedText>
         )}
       </Card>

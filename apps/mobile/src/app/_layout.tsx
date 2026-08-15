@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '@/global.css';
 
+import { ErrorScreen } from '@/components/error-screen';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNotificationRouter } from '@/hooks/use-notification-router';
@@ -20,6 +21,14 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * expo-router renders this instead of a red box when any screen throws, so a
+ * failure is readable on the device rather than a bare stack trace.
+ */
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  return <ErrorScreen error={error} retry={retry} />;
+}
 
 export default function RootLayout() {
   const scheme = useColorScheme();

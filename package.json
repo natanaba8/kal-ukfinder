@@ -2,9 +2,15 @@
   "name": "kal-ukfinder",
   "version": "0.1.0",
   "private": true,
-  "description": "Kal-UKFinder — UK jobs, careers news, government policy briefings and an AI career coach, on mobile and web.",
+  "description": "Kal-UKFinder \u2014 UK jobs, careers news, government policy briefings and an AI career coach, on mobile and web.",
   "scripts": {
     "install:all": "npm --prefix server install && npm --prefix apps/mobile install && npm --prefix apps/admin install",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "node scripts/dev.mjs web",
+    "dev:android": "node scripts/dev.mjs android",
+    "dev:ios": "node scripts/dev.mjs ios",
+    "dev:clean": "node scripts/dev.mjs start --clear",
+    "clean": "node scripts/clean.mjs",
     "server": "npm --prefix server run dev",
     "app": "npm --prefix apps/mobile run start",
     "web": "npm --prefix apps/mobile run web",
@@ -14,9 +20,10 @@
     "ingest": "npm --prefix server run ingest",
     "digest": "npm --prefix server run digest",
     "typecheck": "npm --prefix apps/mobile run typecheck && npm --prefix apps/admin run typecheck",
-    "build:web": "npm --prefix apps/mobile run build:web",
+    "build:web": "npm --prefix apps/mobile run build:web && node scripts/prepare-web.mjs",
     "build:admin": "npm --prefix apps/admin run build",
-    "test": "npm --prefix server test"
+    "test": "npm --prefix server test",
+    "preview:web": "node scripts/serve-dist.mjs"
   },
   "engines": {
     "node": ">=22.5.0"

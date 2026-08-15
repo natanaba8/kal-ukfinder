@@ -1,0 +1,13 @@
+# The API is not deployed to Vercel — it needs a persistent SQLite file and a
+# long-running scheduler, neither of which a serverless function provides.
+# See "Deploying" in README.md.
+server/
+
+# The admin panel is its own Vercel project (Root Directory: apps/admin).
+apps/admin/
+
+node_modules/
+docs/
+**/dist/
+**/.expo/
+*.log

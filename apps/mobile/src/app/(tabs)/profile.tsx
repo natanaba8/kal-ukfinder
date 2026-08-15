@@ -14,7 +14,11 @@ import { AUDIENCES, EXPERIENCE_LEVELS, TOPICS, UK_REGIONS } from '@/constants/ta
 import { Spacing } from '@/constants/theme';
 import { API_BASE_URL, api } from '@/lib/api';
 import { hourLabel } from '@/lib/format';
-import { notificationsSupported, scheduleDailyDigest } from '@/lib/notifications';
+import {
+  notificationsSupported,
+  notificationsUnavailableReason,
+  scheduleDailyDigest,
+} from '@/lib/notifications';
 import { useSession } from '@/lib/session';
 
 const DIGEST_HOURS = [6, 7, 8, 9, 12, 17, 19];
@@ -270,11 +274,7 @@ export default function ProfileScreen() {
       <Card>
         <SectionHeader
           title="Notifications"
-          subtitle={
-            notificationsSupported
-              ? 'A personalised briefing, pushed once a day.'
-              : 'Push notifications are a mobile feature — open the app on iOS or Android to enable them.'
-          }
+          subtitle={notificationsUnavailableReason() ?? 'A personalised briefing, pushed once a day.'}
         />
         <SwitchRow
           label="Daily briefing"
@@ -332,11 +332,10 @@ export default function ProfileScreen() {
               variant="ghost"
               onPress={async () => {
                 await scheduleDailyDigest(profile.notifications);
+                const reason = notificationsUnavailableReason();
                 notify(
-                  'Reminder set',
-                  notificationsSupported
-                    ? `A local reminder will fire daily at ${hourLabel(profile.notifications.digestHour)}.`
-                    : 'Local reminders only work on iOS and Android.',
+                  reason ? 'Reminders unavailable' : 'Reminder set',
+                  reason ?? `A local reminder will fire daily at ${hourLabel(profile.notifications.digestHour)}.`,
                 );
               }}
             />

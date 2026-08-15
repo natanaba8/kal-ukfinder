@@ -12,7 +12,12 @@ import { LoadingState } from '@/components/ui/states';
 import { AUDIENCES, EXPERIENCE_LEVELS, TOPICS, UK_REGIONS } from '@/constants/taxonomy';
 import { Spacing } from '@/constants/theme';
 import { hourLabel } from '@/lib/format';
-import { notificationsSupported, requestPermission, scheduleDailyDigest } from '@/lib/notifications';
+import {
+  notificationsSupported,
+  notificationsUnavailableReason,
+  requestPermission,
+  scheduleDailyDigest,
+} from '@/lib/notifications';
 import { useSession } from '@/lib/session';
 
 const STEPS = ['You', 'Interests', 'Alerts'] as const;
@@ -162,9 +167,8 @@ export default function OnboardingScreen() {
           <SectionHeader
             title="Your daily briefing"
             subtitle={
-              notificationsSupported
-                ? 'One notification a day with what changed and what it means for you.'
-                : 'Push notifications need the iOS or Android app — the web version will still show your briefing.'
+              notificationsUnavailableReason() ??
+              'One notification a day with what changed and what it means for you.'
             }
           />
           <View style={styles.wrap}>

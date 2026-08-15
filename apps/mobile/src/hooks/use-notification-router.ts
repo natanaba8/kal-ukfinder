@@ -25,22 +25,31 @@ export function useNotificationRouter() {
   const router = useRouter();
 
   useEffect(() => {
+    // The native module is absent in Expo Go on Android, so touching it there
+    // throws. Tapping a notification is a nice-to-have; never let it crash the app.
     if (!notificationsSupported) return;
 
     let cancelled = false;
+    let subscription: { remove: () => void } | undefined;
 
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (cancelled || !response) return;
-      router.push(routeFor((response.notification.request.content.data ?? {}) as DigestPayload));
-    });
+    try {
+      Notifications.getLastNotificationResponseAsync()
+        .then((response) => {
+          if (cancelled || !response) return;
+          router.push(routeFor((response.notification.request.content.data ?? {}) as DigestPayload));
+        })
+        .catch(() => undefined);
 
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      router.push(routeFor((response.notification.request.content.data ?? {}) as DigestPayload));
-    });
+      subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        router.push(routeFor((response.notification.request.content.data ?? {}) as DigestPayload));
+      });
+    } catch {
+      // No notifications in this runtime — nothing to route from.
+    }
 
     return () => {
       cancelled = true;
-      subscription.remove();
+      subscription?.remove();
     };
   }, [router]);
 }

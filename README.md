@@ -77,12 +77,48 @@ npm run install:all              # server, mobile app, admin panel
 cp .env.example server/.env
 # set ADMIN_EMAIL and ADMIN_PASSWORD — without them nobody can sign into the admin panel
 
-npm run server                   # terminal 1 — API on :4000, collects on first boot
-npm run web                      # terminal 2 — the app in a browser
-npm run admin                    # terminal 3 — the admin panel on :5173
+npm run dev                      # ← API + admin panel + Expo, all in one terminal
 ```
 
-For a phone, run `npm run app` instead and press `a` / `i`, or scan the QR with Expo Go.
+That one command starts everything. The API and admin logs are prefixed and colour-coded; Expo gets the
+terminal to itself so its **QR code and keyboard menu work normally**:
+
+```
+Kal-UKFinder — starting api, admin, app
+  API    http://localhost:4000        (phone: http://10.0.0.5:4000)
+  Admin  http://localhost:5173
+  App    Expo
+         QR code below · or open exp://10.0.0.5:8081 in Expo Go
+         press a = Android · i = iOS · w = web · r = reload
+  Ctrl+C stops everything
+
+api   │ listening on http://localhost:4000
+admin │ ➜  Local:   http://localhost:5173/
+
+› Metro waiting on exp://10.0.0.5:8081
+› Scan the QR code above with Expo Go
+
+  ▄▄▄▄▄▄▄  ▄▀ ▄▄ ▄  ▄▄▄▄▄▄▄
+  █ ▄▄▄ █ ▀▄▀█▄▀▄▀▄ █ ▄▄▄ █
+  █ ███ █ ▄█▀▄ ▄ ▀█ █ ███ █
+  …
+```
+
+Scan the QR with Expo Go, or open the `exp://` address shown. The LAN address is printed for you, so a
+phone can reach both Metro and the API without any configuration.
+
+Ctrl+C stops all three cleanly and restores the terminal.
+
+| Variant | Starts |
+| --- | --- |
+| `npm run dev` | API + admin + Expo, pick the target from Expo's menu |
+| `npm run dev:web` | …with the app opened in a browser |
+| `npm run dev:android` / `dev:ios` | …opened on a connected device or emulator |
+| `npm run dev:clean` | …with the Metro cache cleared first |
+| `node scripts/dev.mjs api` | API + admin only |
+
+The individual commands (`npm run server`, `npm run web`, `npm run app`, `npm run admin`) still work if you
+prefer separate terminals.
 
 That is a complete working system. With no API keys it runs on the 26 public feeds, a rule-based
 summariser and a bundled sample vacancy set.
@@ -193,6 +229,14 @@ kal-ukfinder/
 │       ├── components/ui/gs/    GlueStack UI + NativeWind layer
 │       └── lib/                 API client, session, notifications
 │
+├── scripts/
+│   ├── dev.mjs                  Runs API + admin + Expo from one command
+│   ├── clean.mjs                Clears every build cache
+│   ├── prepare-web.mjs          URL-safe filenames for dynamic routes
+│   └── serve-dist.mjs           Serves the build the way Vercel does
+│
+├── vercel.json                  Web app deployment
+├── apps/admin/vercel.json       Admin panel deployment
 └── docs/integration-plan.md     Architecture analysis and build record
 ```
 
@@ -218,6 +262,8 @@ saved · sources · onboarding
 | Command | What it does |
 | --- | --- |
 | `npm run install:all` | Install all three packages |
+| **`npm run dev`** | **API + admin panel + Expo, one terminal** |
+| `npm run clean` | Clear every build cache (Metro, Expo, Vite) |
 | `npm run server` | API on :4000 with the collection scheduler |
 | `npm run admin` | Admin panel on :5173 |
 | `npm run web` / `npm run app` | Expo for web / native |
@@ -225,7 +271,9 @@ saved · sources · onboarding
 | `npm run digest` | Send the notification digest now |
 | `npm test` | Server test suite (120 tests) |
 | `npm run typecheck` | TypeScript across the app and the admin panel |
-| `npm run build:web` / `npm run build:admin` | Static builds |
+| `npm run build:web` | Web export + dynamic-route preparation for static hosting |
+| `npm run preview:web` | Serve the build exactly as Vercel will, on :4173 |
+| `npm run build:admin` | Admin panel static build |
 
 ## API
 
@@ -288,13 +336,83 @@ performs and asserts the response shapes its types declare.
 
 ## Deploying
 
-- **API** — any Node 22+ host. Set the env vars from `.env.example`, mount a volume for
-  `server/data/kal-ukfinder.db`, run `npm start`. Migrations apply on boot.
-- **Admin panel** — `npm run build:admin` → static files. Set `VITE_API_URL` before building and add the
-  panel's origin to `CORS_ORIGIN`.
-- **Web app** — `npm run build:web` → static files. Set `EXPO_PUBLIC_API_URL` before building.
-- **Mobile** — `eas build`. Run `eas init` first so a project id is written into `app.json`; that id is
-  what push notifications are addressed to.
+This is a monorepo with three deployables, and they do not all belong in the same place.
+
+| Part | Where | Why |
+| --- | --- | --- |
+| Web app | **Vercel** (static) | Pre-rendered HTML per route |
+| Admin panel | **Vercel** (static) | Vite SPA |
+| API | **Not Vercel** — Render, Railway, Fly, or any VPS | Needs a persistent SQLite file and a long-running scheduler |
+
+### Vercel
+
+`vercel.json` at the repo root builds the **web app**; `apps/admin/vercel.json` builds the **admin panel**.
+They are two separate Vercel projects pointed at the same repository.
+
+**Deploying the repo root without these files is what produces `404: NOT_FOUND`** — Vercel finds no build
+output and has nothing to serve.
+
+**Project 1 — the web app**
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | *(leave empty — repo root)* |
+| Build & Output | picked up from `vercel.json`, nothing to type |
+| Environment variable | `EXPO_PUBLIC_API_URL` = your deployed API, e.g. `https://api.example.com` |
+
+**Project 2 — the admin panel**
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | `apps/admin` |
+| Build & Output | picked up from `apps/admin/vercel.json` |
+| Environment variable | `VITE_API_URL` = the same API URL |
+
+Then set `CORS_ORIGIN` on the API to both Vercel origins, comma separated:
+
+```
+CORS_ORIGIN=https://kal-ukfinder.vercel.app,https://kal-ukfinder-admin.vercel.app
+```
+
+Both env vars are read **at build time**, not runtime — change one and you must redeploy.
+
+#### Why the routing config is needed
+
+expo-router writes a static file per route, and dynamic routes land in files with the parameter in
+brackets: `item/[id].html`. Square brackets are reserved in a URL, so `/item/abc123` matches no file and
+404s. `npm run build:web` therefore runs `scripts/prepare-web.mjs`, which copies each one to a URL-safe
+twin (`item/_id.html`), and `vercel.json` rewrites to it:
+
+```json
+{ "source": "/item/:id", "destination": "/item/_id.html" }
+```
+
+`cleanUrls` serves `/jobs` from `jobs.html`, and `+not-found.html` catches anything unmatched.
+
+#### Check the routing before you deploy
+
+```bash
+npm run build:web      # export + prepare dynamic routes
+npm run preview:web    # serves dist exactly as Vercel will, on :4173
+```
+
+`scripts/serve-dist.mjs` mirrors `vercel.json` — the same cleanUrls, rewrites and fallback. If a URL works
+there it will work on Vercel. Verified across all 25 routes, including `/item/:id` and `/job/:id`.
+
+### The API
+
+Any Node 22+ host with a disk. Set the env vars from `.env.example`, mount a volume for
+`server/data/kal-ukfinder.db`, run `npm start`. Migrations apply on boot.
+
+It is deliberately **not** a Vercel deployment: serverless functions have an ephemeral filesystem, so the
+SQLite database would vanish between invocations, and `node-cron` cannot keep a scheduler alive. To host it
+on Vercel anyway you would need to move the store to a hosted Postgres and replace the scheduler with Vercel
+Cron — a real change, not a config tweak. `.vercelignore` keeps `server/` out of the web deployment.
+
+### Mobile
+
+`eas build`. Run `eas init` first so a project id is written into `app.json`; that id is what push
+notifications are addressed to.
 
 ---
 
@@ -312,6 +430,25 @@ restart the API. The first administrator is created on boot, and only when no ad
 **A source keeps failing** — open Scrape logs in the admin panel and click the failed run. The error names
 the stage (fetch, parse, normalise, store) and the reason. Sites that block automated clients return
 HTTP 403; sites that disallow the path in robots.txt are refused before any request is made.
+
+**A fix does not seem to take effect** — Metro keys its transform cache on the babel config, so after a
+config change it will keep serving the old bundle. `npm run clean` then `npm run dev:clean`.
+
+**`404: NOT_FOUND` on Vercel** — the project is deploying the repo root without picking up `vercel.json`,
+so there is no build output. Check the project's Root Directory: empty for the web app, `apps/admin` for
+the admin panel. If only the deep links 404 (`/item/abc`), the build skipped `scripts/prepare-web.mjs` —
+build with `npm run build:web`, not `expo export` directly. Reproduce either locally with
+`npm run preview:web`.
+
+**The deployed site loads but says it cannot reach the server** — `EXPO_PUBLIC_API_URL` (web) and
+`VITE_API_URL` (admin) are read at build time. Set them in Vercel and redeploy; changing them without a
+redeploy does nothing.
+
+**Red error screen on the phone** — the app shows a readable error screen rather than a bare red box: it
+names what failed, the API address it tried, and the first lines of the stack. Screenshot that.
+Notifications are the one known Expo Go limitation — `expo-notifications` was removed from Expo Go on
+Android in SDK 53, so reminders need a development build (`npx expo run:android`). Everything else in the
+app works in Expo Go.
 
 **`npm install` fails in `apps/mobile` on Windows** — if a previous install was interrupted, some
 directories can be left in a delete-pending state that an editor's file watcher keeps alive. Close the

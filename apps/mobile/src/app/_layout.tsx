@@ -1,5 +1,6 @@
 import { OverlayProvider } from '@gluestack-ui/overlay';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -75,6 +76,7 @@ export default function RootLayout() {
           </ThemeProvider>
         </OverlayProvider>
       </SafeAreaProvider>
+      <SpeedInsights />
     </QueryClientProvider>
   );
 }

@@ -30,24 +30,24 @@ const bearerToken = (request) => {
  * Used on browse routes so signed-out visitors still get content (the product
  * decision recorded in docs/integration-plan.md §H).
  */
-export const optionalAuth = (request, response, next) => {
+export const optionalAuth = async (request, response, next) => {
   const token = bearerToken(request);
   if (!token) return next();
 
-  const session = resolveSession(token);
+  const session = await resolveSession(token);
   if (!session || session.disabled) return next();
 
   request.auth = session;
   return next();
 };
 
-export const requireAuth = (request, response, next) => {
+export const requireAuth = async (request, response, next) => {
   const token = bearerToken(request);
   if (!token) {
     return response.status(401).json({ error: 'Sign in to continue', code: 'UNAUTHENTICATED' });
   }
 
-  const session = resolveSession(token);
+  const session = await resolveSession(token);
   if (!session) {
     return response.status(401).json({ error: 'Your session has expired. Sign in again.', code: 'SESSION_EXPIRED' });
   }
@@ -81,9 +81,9 @@ export const editorOnly = [requireAuth, requireRole('EDITOR')];
  * through the transition (§42.2 — do not delete existing functionality) while
  * authenticated clients always win.
  */
-export const actingUser = (request) => {
-  if (request.auth) return getUser(request.auth.userId);
+export const actingUser = async (request) => {
+  if (request.auth) return await getUser(request.auth.userId);
 
   const legacyId = request.params?.userId ?? request.body?.userId ?? request.query?.userId;
-  return legacyId ? getUser(String(legacyId)) : null;
+  return legacyId ? await getUser(String(legacyId)) : null;
 };

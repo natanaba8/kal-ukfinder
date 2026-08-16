@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kal-admin-test-'));
-process.env.DB_PATH = path.join(tempDir, 'test.db');
-process.env.INGEST_ENABLED = 'false';
-process.env.DIGEST_ENABLED = 'false';
+import { isolateDatabase } from './support/isolate.js';
+
+const tempDir = isolateDatabase('admin');
 process.env.NODE_ENV = 'test';
 
 const { createApp } = await import('../src/index.js');
@@ -33,7 +30,7 @@ const call = async (route, { token, ...options } = {}) => {
   return { status: response.status, body: await response.json().catch(() => null) };
 };
 
-const api = (route, options = {}) => call(route, { token: adminToken, ...options });
+const api = async (route, options = {}) => await call(route, { token: adminToken, ...options });
 
 const makeAccount = async (email, role) => {
   const registered = await call('/api/auth/register', {
@@ -41,7 +38,7 @@ const makeAccount = async (email, role) => {
     body: JSON.stringify({ email, password: 'correct-horse-42' }),
   });
 
-  if (role) setRole(registered.body.user.id, role);
+  if (role) await setRole(registered.body.user.id, role);
 
   const login = await call('/api/auth/login', {
     method: 'POST',
@@ -66,7 +63,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
-  db.close();
+  await db.close();
   fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3 });
 });
 

@@ -36,10 +36,10 @@ const askSchema = z.object({
 
 aiRouter.post('/ai/ask', aiLimiter, async (request, response) => {
   const body = askSchema.parse(request.body);
-  const user = actingUser(request);
+  const user = await actingUser(request);
 
   const history = user
-    ? threadMessages(user.id, 'coach', 10).map((message) => ({
+    ? (await threadMessages(user.id, 'coach', 10)).map((message) => ({
         role: message.role === 'assistant' ? 'model' : 'user',
         text: message.content,
       }))
@@ -47,7 +47,7 @@ aiRouter.post('/ai/ask', aiLimiter, async (request, response) => {
 
   const context =
     user && body.useBriefingContext
-      ? rankedForProfile(user.profile, { limit: 5 }).map((item) => ({
+      ? (await rankedForProfile(user.profile, { limit: 5 })).map((item) => ({
           title: item.headline,
           source: item.source.name,
           url: item.url,
@@ -63,8 +63,8 @@ aiRouter.post('/ai/ask', aiLimiter, async (request, response) => {
   });
 
   if (user) {
-    appendMessage({ userId: user.id, thread: 'coach', role: 'user', content: body.question });
-    appendMessage({
+    await appendMessage({ userId: user.id, thread: 'coach', role: 'user', content: body.question });
+    await appendMessage({
       userId: user.id,
       thread: 'coach',
       role: 'assistant',
@@ -84,14 +84,14 @@ const ownThread = (request, response, next) => {
   return next();
 };
 
-aiRouter.get('/ai/thread/:userId', ownThread, (request, response) => {
+aiRouter.get('/ai/thread/:userId', ownThread, async (request, response) => {
   const thread = String(request.query.thread ?? 'coach');
-  response.json({ messages: threadMessages(request.params.userId, thread) });
+  response.json({ messages: await threadMessages(request.params.userId, thread) });
 });
 
-aiRouter.delete('/ai/thread/:userId', ownThread, (request, response) => {
+aiRouter.delete('/ai/thread/:userId', ownThread, async (request, response) => {
   const thread = String(request.query.thread ?? 'coach');
-  response.json({ deleted: clearThread(request.params.userId, thread) });
+  response.json({ deleted: await clearThread(request.params.userId, thread) });
 });
 
 // --- CV review --------------------------------------------------------------
@@ -105,7 +105,7 @@ const cvSchema = z.object({
 
 aiRouter.post('/ai/cv-review', aiLimiter, async (request, response) => {
   const body = cvSchema.parse(request.body);
-  const user = actingUser(request);
+  const user = await actingUser(request);
 
   const result = await reviewCv({
     cvText: body.cvText,
@@ -115,7 +115,7 @@ aiRouter.post('/ai/cv-review', aiLimiter, async (request, response) => {
   });
 
   if (user) {
-    appendMessage({
+    await appendMessage({
       userId: user.id,
       thread: 'cv',
       role: 'assistant',
@@ -139,7 +139,7 @@ const interviewSchema = z.object({
 
 aiRouter.post('/ai/interview', aiLimiter, async (request, response) => {
   const body = interviewSchema.parse(request.body);
-  const user = actingUser(request);
+  const user = await actingUser(request);
 
   const result = await prepareInterview({
     role: body.role,

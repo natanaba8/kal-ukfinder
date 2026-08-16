@@ -87,7 +87,7 @@ const startSchedulers = () => {
   startScheduler();
 
   if (config.digest.enabled) {
-    cron.schedule(config.digest.cron, () => {
+    cron.schedule(config.digest.cron, async () => {
       runDigest().catch((error) => log.error(`scheduled digest failed: ${error.message}`));
     });
     log.info(`digest scheduled (${config.digest.cron})`);
@@ -105,12 +105,12 @@ if (isMain) {
     log.info(`AI: ${isAiEnabled() ? `${config.ai.fastModel} / ${config.ai.smartModel}` : 'rule-based fallback (no GEMINI_API_KEY)'}`);
     log.info(`job providers: ${jobProvidersConfigured().join(', ')}`);
 
-    await bootstrapAdmin().catch((error) => log.error(`admin bootstrap failed: ${error.message}`));
+    bootstrapAdmin().catch((error) => log.error(`admin bootstrap failed: ${error.message}`));
 
     startSchedulers();
 
     // A fresh database is empty and the app would look broken — fill it now.
-    if (countItems() === 0) {
+    if (await countItems() === 0) {
       log.info('empty database, running first ingest...');
       runIngest().catch((error) => log.error(`first ingest failed: ${error.message}`));
     }

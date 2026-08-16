@@ -36,14 +36,12 @@ export const runIngest = async ({ triggeredBy = 'cli' } = {}) => {
   };
 };
 
-export const lastIngestRun = () => {
-  const row = db
-    .prepare(`
+export const lastIngestRun = async () => {
+  const row = (await db.get(`
       SELECT r.*, s.name AS source_name
         FROM scrape_runs r LEFT JOIN sources s ON s.id = r.source_id
        ORDER BY r.started_at DESC LIMIT 1
-    `)
-    .get();
+    `, []));
 
   if (!row) return null;
 
@@ -66,4 +64,4 @@ export const lastIngestRun = () => {
 
 export { isRunning as isIngestRunning } from './scheduler/index.js';
 
-export const ingestOverview = () => sourceCounts();
+export const ingestOverview = async () => await sourceCounts();

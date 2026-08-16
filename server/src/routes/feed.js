@@ -29,8 +29,8 @@ const paging = (query) => ({
   pageSize: query.limit ?? query.pageSize,
 });
 
-const paged = (query, extra = {}) =>
-  listItemsPaged({
+const paged = async (query, extra = {}) =>
+  await listItemsPaged({
     topics: csv(query.topics),
     audience: csv(query.audience),
     search: query.search,
@@ -54,12 +54,12 @@ const envelope = (result, extra = {}) => ({
  * The home briefing. With a session (or a legacy `userId`) it is ranked against
  * that profile; otherwise it is reverse-chronological across every source.
  */
-feedRouter.get('/feed', optionalAuth, (request, response) => {
+feedRouter.get('/feed', optionalAuth, async (request, response) => {
   const query = listSchema.parse(request.query);
-  const user = actingUser(request);
+  const user = await actingUser(request);
 
   if (user && !query.search) {
-    const ranked = rankedForProfile(user.profile, { limit: query.pageSize * query.page, kind: query.kind });
+    const ranked = await rankedForProfile(user.profile, { limit: query.pageSize * query.page, kind: query.kind });
     return response.json({
       personalised: true,
       profileTopics: user.profile.topics,
@@ -72,30 +72,30 @@ feedRouter.get('/feed', optionalAuth, (request, response) => {
     });
   }
 
-  return response.json(envelope(paged(query, { kind: query.kind }), { personalised: false }));
+  return response.json(envelope(await paged(query, { kind: query.kind }), { personalised: false }));
 });
 
 /** GET /api/news — journalism only. */
-feedRouter.get('/news', (request, response) => {
+feedRouter.get('/news', async (request, response) => {
   const query = listSchema.parse(request.query);
-  response.json(envelope(paged(query, { kind: 'news' })));
+  response.json(envelope(await paged(query, { kind: 'news' })));
 });
 
 /** GET /api/policies — official government and regulator output only. */
-feedRouter.get('/policies', (request, response) => {
+feedRouter.get('/policies', async (request, response) => {
   const query = listSchema.parse(request.query);
-  response.json(envelope(paged(query, { kind: 'policy' })));
+  response.json(envelope(await paged(query, { kind: 'policy' })));
 });
 
-feedRouter.get('/policies/categories', (request, response) => {
-  response.json({ categories: distinctCategories() });
+feedRouter.get('/policies/categories', async (request, response) => {
+  response.json({ categories: await distinctCategories() });
 });
 
-feedRouter.get('/items/:id', (request, response) => {
-  const item = getItem(request.params.id);
+feedRouter.get('/items/:id', async (request, response) => {
+  const item = await getItem(request.params.id);
   if (!item || item.status !== 'published') return response.status(404).json({ error: 'Item not found' });
 
-  const related = listItems({ limit: 60 })
+  const related = (await listItems({ limit: 60 }))
     .filter((candidate) => candidate.id !== item.id)
     .map((candidate) => ({
       candidate,
@@ -110,7 +110,7 @@ feedRouter.get('/items/:id', (request, response) => {
 });
 
 /** GET /api/search — one query across both content types (pr.md §30). */
-feedRouter.get('/search', (request, response) => {
+feedRouter.get('/search', async (request, response) => {
   const query = z
     .object({
       q: z.string().min(2, 'Enter at least two characters').max(200),
@@ -119,8 +119,8 @@ feedRouter.get('/search', (request, response) => {
     })
     .parse(request.query);
 
-  const jobs = listJobsPaged({ search: query.q, page: query.page, pageSize: query.pageSize });
-  const policies = listItemsPaged({ search: query.q, page: query.page, pageSize: query.pageSize });
+  const jobs = await listJobsPaged({ search: query.q, page: query.page, pageSize: query.pageSize });
+  const policies = await listItemsPaged({ search: query.q, page: query.page, pageSize: query.pageSize });
 
   response.json({
     query: query.q,

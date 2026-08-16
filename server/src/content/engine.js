@@ -103,7 +103,7 @@ export const previewSource = async (source, { limit = 10 } = {}) => {
  */
 export const collectSource = async (source, { triggeredBy = 'scheduler', limit } = {}) => {
   const started = Date.now();
-  const runId = startRun({ sourceId: source.id, method: source.resolvedMethod ?? source.method, triggeredBy });
+  const runId = await startRun({ sourceId: source.id, method: source.resolvedMethod ?? source.method, triggeredBy });
 
   const stats = {
     sourceId: source.id,
@@ -155,26 +155,26 @@ export const collectSource = async (source, { triggeredBy = 'scheduler', limit }
 
     // --- jobs: dedupe then store -----------------------------------------
     for (const job of jobs) {
-      const duplicate = findJobDuplicate(job);
+      const duplicate = await findJobDuplicate(job);
       if (duplicate.duplicate && duplicate.reason !== 'url') {
         stats.itemsDuplicate += 1;
         continue;
       }
 
       try {
-        upsertJob(job);
+        await upsertJob(job);
         if (duplicate.duplicate) stats.itemsUpdated += 1;
         else stats.itemsNew += 1;
       } catch (error) {
         stats.errorCount += 1;
-        logError({ runId, sourceId: source.id, stage: 'store', message: error.message, detail: job.url });
+        await logError({ runId, sourceId: source.id, stage: 'store', message: error.message, detail: job.url });
       }
     }
 
     // --- articles: dedupe, enrich in batches, then store -------------------
     const fresh = [];
     for (const policy of policies) {
-      const duplicate = findItemDuplicate(policy);
+      const duplicate = await findItemDuplicate(policy);
       if (duplicate.duplicate) {
         stats.itemsDuplicate += 1;
         continue;
@@ -194,10 +194,14 @@ export const collectSource = async (source, { triggeredBy = 'scheduler', limit }
         })),
       );
 
-      batch.forEach((item, index) => {
+      // Sequential on purpose. Inserting is now asynchronous, and dedupe checks
+      // each candidate against what is already stored — running the batch in
+      // parallel would let two near-identical items pass the check together.
+      // It also keeps `stats` complete before `finishRun` reads it below.
+      for (const [index, item] of batch.entries()) {
         const enrichment = enrichments[index];
         try {
-          const outcome = insertItem({
+          const outcome = await insertItem({
             ...item,
             id: idForUrl(item.url),
             headline: enrichment.headline,
@@ -215,14 +219,14 @@ export const collectSource = async (source, { triggeredBy = 'scheduler', limit }
           else stats.itemsDuplicate += 1;
         } catch (error) {
           stats.errorCount += 1;
-          logError({ runId, sourceId: source.id, stage: 'store', message: error.message, detail: item.url });
+          await logError({ runId, sourceId: source.id, stage: 'store', message: error.message, detail: item.url });
         }
-      });
+      }
     }
 
     const status = stats.errorCount > 0 && stats.itemsNew === 0 ? 'failed' : 'success';
-    finishRun(runId, { ...stats, status, method, startedAtMs: started });
-    recordSyncResult(source.id, { status });
+    await finishRun(runId, { ...stats, status, method, startedAtMs: started });
+    await recordSyncResult(source.id, { status });
 
     log.info(
       `${source.name}: ${stats.itemsNew} new, ${stats.itemsUpdated} updated, ${stats.itemsDuplicate} duplicate`,
@@ -231,15 +235,15 @@ export const collectSource = async (source, { triggeredBy = 'scheduler', limit }
     return { ...stats, status, method, runId };
   } catch (error) {
     const message = error.message ?? 'Collection failed';
-    logError({
+    await logError({
       runId,
       sourceId: source.id,
       stage: error instanceof FetchRefused ? 'fetch' : 'parse',
       message,
       detail: error.code ?? null,
     });
-    finishRun(runId, { ...stats, status: 'failed', errorCount: stats.errorCount + 1, startedAtMs: started });
-    recordSyncResult(source.id, { status: 'failed', error: message });
+    await finishRun(runId, { ...stats, status: 'failed', errorCount: stats.errorCount + 1, startedAtMs: started });
+    await recordSyncResult(source.id, { status: 'failed', error: message });
 
     log.warn(`${source.name}: ${message}`);
     return { ...stats, status: 'failed', error: message, code: error.code ?? null, runId };

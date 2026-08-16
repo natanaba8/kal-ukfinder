@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
+
+import { isolateDatabase } from './support/isolate.js';
 
 /**
  * The app/server contract.
@@ -15,10 +15,7 @@ import { after, before, describe, it } from 'node:test';
  * from what the app expects, this fails rather than the app failing at runtime.
  */
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kal-contract-test-'));
-process.env.DB_PATH = path.join(tempDir, 'test.db');
-process.env.INGEST_ENABLED = 'false';
-process.env.DIGEST_ENABLED = 'false';
+const tempDir = isolateDatabase('contract');
 process.env.NODE_ENV = 'test';
 
 const { createApp } = await import('../src/index.js');
@@ -53,7 +50,7 @@ before(async () => {
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  insertItem({
+  await insertItem({
     id: idForUrl('https://example.gov.uk/wage-rates'),
     kind: 'policy',
     sourceId: 'govuk-dwp',
@@ -75,7 +72,7 @@ before(async () => {
     category: 'Employment',
   });
 
-  upsertJob({
+  await upsertJob({
     source: 'sample',
     dbSourceId: 'sample',
     title: 'Registered Nurse',
@@ -100,7 +97,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
-  db.close();
+  await db.close();
   fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3 });
 });
 

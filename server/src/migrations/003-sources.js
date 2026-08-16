@@ -8,8 +8,8 @@
 export default {
   id: 3,
   name: 'sources',
-  up(db) {
-    db.exec(`
+  async up(db) {
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS sources (
         id                      TEXT PRIMARY KEY,
         name                    TEXT NOT NULL,
@@ -42,8 +42,10 @@ export default {
 
       -- Two feeds can share a homepage (BBC business vs BBC education), so
       -- uniqueness is on the endpoint we actually fetch, not the site.
+      -- Postgres requires an expression index to be double-parenthesised;
+      -- SQLite accepts the same form, so one definition serves both.
       CREATE UNIQUE INDEX IF NOT EXISTS sources_endpoint
-        ON sources (COALESCE(rss_url, api_url, scrape_url, base_url));
+        ON sources ((COALESCE(rss_url, api_url, scrape_url, base_url)));
       CREATE INDEX IF NOT EXISTS sources_active ON sources (active, content_type);
     `);
   },

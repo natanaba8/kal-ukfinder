@@ -34,7 +34,7 @@ const rowToJob = (row) => ({
 
 export { rowToJob };
 
-const upsertStatement = db.prepare(`
+const UPSERT_JOB = `
   INSERT INTO jobs (
     id, source, external_id, title, company, location, region, remote, salary_min, salary_max,
     salary_text, contract_type, category, url, description, posted_at, ai_summary, ai_skills, created_at,
@@ -53,11 +53,11 @@ const upsertStatement = db.prepare(`
     employment_type = excluded.employment_type,
     posted_at = excluded.posted_at,
     updated_at = excluded.updated_at
-`);
+`;
 
-export const upsertJob = (job) => {
+export const upsertJob = async (job) => {
   const id = job.id ?? idForJobUrl(job.url);
-  upsertStatement.run(
+  await db.run(UPSERT_JOB, [
     bind(id),
     bind(job.source),
     bind(job.externalId),
@@ -86,7 +86,7 @@ export const upsertJob = (job) => {
     bind(job.status ?? 'published'),
     bind(job.featured ? 1 : 0),
     nowIso(),
-  );
+  ]);
   return id;
 };
 
@@ -158,65 +158,59 @@ const buildJobFilters = ({
   return { clause: where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '', params };
 };
 
-export const listJobs = ({ limit = 30, offset = 0, ...filters } = {}) => {
+export const listJobs = async ({ limit = 30, offset = 0, ...filters } = {}) => {
   const { clause, params } = buildJobFilters(filters);
 
-  return db
-    .prepare(`SELECT * FROM jobs${clause} ORDER BY featured DESC, posted_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, Math.min(100, limit), offset)
+  return (await db.all(`SELECT * FROM jobs${clause} ORDER BY featured DESC, posted_at DESC LIMIT ? OFFSET ?`, [...params, Math.min(100, limit), offset]))
     .map(rowToJob);
 };
 
 /** Paginated form returned by /api/jobs (pr.md §25, §36). */
-export const listJobsPaged = ({ page = 1, pageSize = 20, ...filters } = {}) => {
+export const listJobsPaged = async ({ page = 1, pageSize = 20, ...filters } = {}) => {
   const { clause, params } = buildJobFilters(filters);
-  const total = db.prepare(`SELECT COUNT(*) AS total FROM jobs${clause}`).get(...params).total;
+  const total = (await db.get(`SELECT COUNT(*) AS total FROM jobs${clause}`, [...params])).total;
   const limit = Math.min(100, Math.max(1, pageSize));
   const currentPage = Math.max(1, page);
 
-  const data = db
-    .prepare(`SELECT * FROM jobs${clause} ORDER BY featured DESC, posted_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, limit, (currentPage - 1) * limit)
+  const data = (await db.all(`SELECT * FROM jobs${clause} ORDER BY featured DESC, posted_at DESC LIMIT ? OFFSET ?`, [...params, limit, (currentPage - 1) * limit]))
     .map(rowToJob);
 
   return { data, total, page: currentPage, pageSize: limit, pages: Math.ceil(total / limit) };
 };
 
-export const getJob = (id) => {
-  const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+export const getJob = async (id) => {
+  const row = (await db.get('SELECT * FROM jobs WHERE id = ?', [id]));
   return row ? rowToJob(row) : null;
 };
 
-export const getJobsByIds = (ids) => {
+export const getJobsByIds = async (ids) => {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(',');
-  return db.prepare(`SELECT * FROM jobs WHERE id IN (${placeholders})`).all(...ids).map(rowToJob);
+  return (await db.all(`SELECT * FROM jobs WHERE id IN (${placeholders})`, [...ids])).map(rowToJob);
 };
 
-export const countJobs = () => db.prepare('SELECT COUNT(*) AS total FROM jobs').get().total;
+export const countJobs = async () => (await db.get('SELECT COUNT(*) AS total FROM jobs', [])).total;
 
-export const jobCategories = () =>
-  db
-    .prepare('SELECT category, COUNT(*) AS total FROM jobs WHERE category IS NOT NULL GROUP BY category ORDER BY total DESC')
-    .all()
+export const jobCategories = async () =>
+  (await db.all('SELECT category, COUNT(*) AS total FROM jobs WHERE category IS NOT NULL GROUP BY category ORDER BY total DESC', []))
     .map((row) => ({ category: row.category, total: row.total }));
 
-export const pruneJobs = (days) => {
+export const pruneJobs = async (days) => {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-  return db.prepare('DELETE FROM jobs WHERE posted_at < ?').run(cutoff).changes;
+  return (await db.run('DELETE FROM jobs WHERE posted_at < ?', [cutoff])).changes;
 };
 
 /** Admin moderation (pr.md §26, §34). */
-export const setJobStatus = (id, status) =>
-  db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?').run(status, nowIso(), id).changes;
+export const setJobStatus = async (id, status) =>
+  (await db.run('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?', [status, nowIso(), id])).changes;
 
-export const setJobFeatured = (id, featured) =>
-  db.prepare('UPDATE jobs SET featured = ?, updated_at = ? WHERE id = ?').run(featured ? 1 : 0, nowIso(), id)
+export const setJobFeatured = async (id, featured) =>
+  (await db.run('UPDATE jobs SET featured = ?, updated_at = ? WHERE id = ?', [featured ? 1 : 0, nowIso(), id]))
     .changes;
 
-export const deleteJob = (id) => db.prepare('DELETE FROM jobs WHERE id = ?').run(id).changes;
+export const deleteJob = async (id) => (await db.run('DELETE FROM jobs WHERE id = ?', [id])).changes;
 
-export const updateJobMeta = (id, { category, employmentType, location, deadline }) => {
+export const updateJobMeta = async (id, { category, employmentType, location, deadline }) => {
   const assignments = [];
   const params = [];
 
@@ -231,26 +225,24 @@ export const updateJobMeta = (id, { category, employmentType, location, deadline
     params.push(bind(value));
   }
 
-  if (assignments.length === 0) return getJob(id);
+  if (assignments.length === 0) return await getJob(id);
 
   assignments.push('updated_at = ?');
   params.push(nowIso(), id);
 
-  db.prepare(`UPDATE jobs SET ${assignments.join(', ')} WHERE id = ?`).run(...params);
-  return getJob(id);
+  (await db.run(`UPDATE jobs SET ${assignments.join(', ')} WHERE id = ?`, [...params]));
+  return await getJob(id);
 };
 
-export const jobCounts = () => {
-  const row = db
-    .prepare(`
+export const jobCounts = async () => {
+  const row = (await db.get(`
       SELECT COUNT(*) AS total,
              SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) AS published,
              SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
              SUM(CASE WHEN status = 'hidden' THEN 1 ELSE 0 END) AS hidden,
              SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS today
         FROM jobs
-    `)
-    .get(new Date(Date.now() - 86_400_000).toISOString());
+    `, [new Date(Date.now() - 86_400_000).toISOString()]));
 
   return {
     total: row.total ?? 0,
@@ -261,14 +253,10 @@ export const jobCounts = () => {
   };
 };
 
-export const jobLocations = () =>
-  db
-    .prepare("SELECT location, COUNT(*) AS total FROM jobs WHERE location IS NOT NULL AND location != '' GROUP BY location ORDER BY total DESC LIMIT 40")
-    .all()
+export const jobLocations = async () =>
+  (await db.all("SELECT location, COUNT(*) AS total FROM jobs WHERE location IS NOT NULL AND location != '' GROUP BY location ORDER BY total DESC LIMIT 40", []))
     .map((row) => ({ location: row.location, total: row.total }));
 
-export const jobOrganizations = () =>
-  db
-    .prepare("SELECT company, COUNT(*) AS total FROM jobs WHERE company IS NOT NULL AND company != '' GROUP BY company ORDER BY total DESC LIMIT 40")
-    .all()
+export const jobOrganizations = async () =>
+  (await db.all("SELECT company, COUNT(*) AS total FROM jobs WHERE company IS NOT NULL AND company != '' GROUP BY company ORDER BY total DESC LIMIT 40", []))
     .map((row) => ({ organization: row.company, total: row.total }));

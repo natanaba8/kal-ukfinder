@@ -7,7 +7,7 @@ import { deleteUser, getUser, listUsersPaged, setRole, setStatus } from '../../s
 
 export const adminUsersRouter = Router();
 
-adminUsersRouter.get('/users', (request, response) => {
+adminUsersRouter.get('/users', async (request, response) => {
   const query = z
     .object({
       search: z.string().optional(),
@@ -19,11 +19,11 @@ adminUsersRouter.get('/users', (request, response) => {
     })
     .parse(request.query);
 
-  response.json(listUsersPaged({ ...query, includeAnonymous: query.includeAnonymous === 'true' }));
+  response.json(await listUsersPaged({ ...query, includeAnonymous: query.includeAnonymous === 'true' }));
 });
 
-adminUsersRouter.get('/users/:id', (request, response) => {
-  const user = getUser(request.params.id);
+adminUsersRouter.get('/users/:id', async (request, response) => {
+  const user = await getUser(request.params.id);
   if (!user) return response.status(404).json({ error: 'User not found' });
   return response.json({ user });
 });
@@ -32,9 +32,9 @@ adminUsersRouter.get('/users/:id', (request, response) => {
  * Role changes are restricted so an ADMIN cannot mint a SUPER_ADMIN or edit one.
  * Only a SUPER_ADMIN can grant the top role.
  */
-adminUsersRouter.patch('/users/:id/role', (request, response) => {
+adminUsersRouter.patch('/users/:id/role', async (request, response) => {
   const { role } = z.object({ role: z.enum(ROLES) }).parse(request.body);
-  const target = getUser(request.params.id);
+  const target = await getUser(request.params.id);
   if (!target) return response.status(404).json({ error: 'User not found' });
 
   const actorRole = request.auth.role;
@@ -45,16 +45,16 @@ adminUsersRouter.patch('/users/:id/role', (request, response) => {
     return response.status(403).json({ error: 'Only a super admin can manage super admins', code: 'FORBIDDEN' });
   }
 
-  setRole(target.id, role);
+  await setRole(target.id, role);
   // Anything they had open should reflect the new permissions immediately.
-  revokeAllForUser(target.id);
+  await revokeAllForUser(target.id);
 
-  return response.json({ user: getUser(target.id) });
+  return response.json({ user: await getUser(target.id) });
 });
 
-adminUsersRouter.patch('/users/:id/status', (request, response) => {
+adminUsersRouter.patch('/users/:id/status', async (request, response) => {
   const { status } = z.object({ status: z.enum(['ACTIVE', 'DISABLED']) }).parse(request.body);
-  const target = getUser(request.params.id);
+  const target = await getUser(request.params.id);
   if (!target) return response.status(404).json({ error: 'User not found' });
 
   if (request.auth.userId === target.id) {
@@ -64,14 +64,14 @@ adminUsersRouter.patch('/users/:id/status', (request, response) => {
     return response.status(403).json({ error: 'Only a super admin can disable a super admin', code: 'FORBIDDEN' });
   }
 
-  setStatus(target.id, status);
-  if (status === 'DISABLED') revokeAllForUser(target.id);
+  await setStatus(target.id, status);
+  if (status === 'DISABLED') await revokeAllForUser(target.id);
 
-  return response.json({ user: getUser(target.id) });
+  return response.json({ user: await getUser(target.id) });
 });
 
-adminUsersRouter.delete('/users/:id', (request, response) => {
-  const target = getUser(request.params.id);
+adminUsersRouter.delete('/users/:id', async (request, response) => {
+  const target = await getUser(request.params.id);
   if (!target) return response.status(404).json({ error: 'User not found' });
 
   if (request.auth.userId === target.id) {
@@ -81,6 +81,6 @@ adminUsersRouter.delete('/users/:id', (request, response) => {
     return response.status(403).json({ error: 'Only a super admin can delete a super admin', code: 'FORBIDDEN' });
   }
 
-  deleteUser(target.id);
+  await deleteUser(target.id);
   return response.json({ deleted: true });
 });

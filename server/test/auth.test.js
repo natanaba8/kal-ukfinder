@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kal-auth-test-'));
-process.env.DB_PATH = path.join(tempDir, 'test.db');
-process.env.INGEST_ENABLED = 'false';
-process.env.DIGEST_ENABLED = 'false';
+import { isolateDatabase } from './support/isolate.js';
+
+const tempDir = isolateDatabase('auth');
 process.env.NODE_ENV = 'test';
 
 const { createApp } = await import('../src/index.js');
@@ -31,8 +28,8 @@ const api = async (route, { token, ...options } = {}) => {
   return { status: response.status, body: await response.json().catch(() => null) };
 };
 
-const register = (email, password = 'correct-horse-42', extra = {}) =>
-  api('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password, ...extra }) });
+const register = async (email, password = 'correct-horse-42', extra = {}) =>
+  await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password, ...extra }) });
 
 before(async () => {
   server = createApp().listen(0);
@@ -42,7 +39,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
-  db.close();
+  await db.close();
   fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3 });
 });
 
@@ -245,7 +242,7 @@ describe('role protection', () => {
 
   it('lets an ADMIN in', async () => {
     const { body } = await register('admin@example.com');
-    setRole(body.user.id, 'ADMIN');
+    await setRole(body.user.id, 'ADMIN');
 
     const relogin = await api('/api/auth/login', {
       method: 'POST',
@@ -258,7 +255,7 @@ describe('role protection', () => {
   });
 
   it('bootstraps the first administrator from the environment', async () => {
-    db.exec("UPDATE users SET role = 'USER'");
+    await db.exec("UPDATE users SET role = 'USER'");
     process.env.ADMIN_EMAIL = 'boss@example.com';
     process.env.ADMIN_PASSWORD = 'bootstrap-secret-11';
 

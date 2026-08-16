@@ -10,7 +10,8 @@
     "start": "node --env-file-if-exists=.env src/index.js",
     "ingest": "node --env-file-if-exists=.env src/scripts/ingest-once.js",
     "digest": "node --env-file-if-exists=.env src/scripts/send-digest.js",
-    "test": "node --test --env-file-if-exists=.env \"test/**/*.test.js\""
+    "test": "node --test --env-file-if-exists=.env \"test/**/*.test.js\"",
+    "db:check": "node --env-file-if-exists=.env src/scripts/db-check.js"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -24,6 +25,7 @@
     "fast-xml-parser": "^5.2.5",
     "helmet": "^8.3.0",
     "node-cron": "^4.2.1",
+    "pg": "^8.23.0",
     "zod": "^4.1.13"
   }
 }

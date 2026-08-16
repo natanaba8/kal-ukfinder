@@ -20,24 +20,20 @@ export const ukHour = (date = new Date()) =>
     }).format(date),
   ) % 24;
 
-const recordNotification = ({ userId, title, body, data, status }) => {
+const recordNotification = async ({ userId, title, body, data, status }) => {
   const id = crypto.randomUUID();
-  db.prepare('INSERT INTO notifications (id, user_id, title, body, data, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id,
+  (await db.run('INSERT INTO notifications (id, user_id, title, body, data, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [id,
     userId,
     bind(title),
     bind(body),
     toJson(data ?? {}),
     status,
-    nowIso(),
-  );
+    nowIso()]));
   return id;
 };
 
-export const notificationHistory = (userId, limit = 30) =>
-  db
-    .prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?')
-    .all(userId, limit)
+export const notificationHistory = async (userId, limit = 30) =>
+  (await db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?', [userId, limit]))
     .map((row) => ({
       id: row.id,
       title: row.title,
@@ -51,20 +47,20 @@ export const notificationHistory = (userId, limit = 30) =>
  * Build one person's briefing: the highest-scoring recent items for their
  * topics, plus their best job matches if job alerts are on.
  */
-export const buildDigest = (user, { sinceHours = 24, maxItems = 5 } = {}) => {
+export const buildDigest = async (user, { sinceHours = 24, maxItems = 5 } = {}) => {
   const since = Date.now() - sinceHours * 3_600_000;
 
-  const items = rankedForProfile(user.profile, { limit: 40 })
+  const items = (await rankedForProfile(user.profile, { limit: 40 }))
     .filter((item) => new Date(item.publishedAt).getTime() >= since)
     .slice(0, maxItems);
 
   const jobs = user.profile.notifications?.jobAlerts
-    ? listJobs({
+    ? (await listJobs({
         location: user.profile.remoteOnly ? undefined : user.profile.location || undefined,
         remoteOnly: user.profile.remoteOnly,
         salaryMin: user.profile.salaryMin ?? undefined,
         limit: 40,
-      })
+      }))
         .map((job) => ({ job, match: scoreJobLexically(job, user.profile) }))
         .filter((entry) => entry.match.score >= 35 && new Date(entry.job.postedAt).getTime() >= since)
         .sort((a, b) => b.match.score - a.match.score)
@@ -81,7 +77,7 @@ export const buildDigest = (user, { sinceHours = 24, maxItems = 5 } = {}) => {
  */
 export const runDigest = async ({ force = false, userId = null } = {}) => {
   const hour = ukHour();
-  const users = (userId ? [listUsers().find((user) => user.id === userId)].filter(Boolean) : listUsers()).filter(
+  const users = (userId ? [(await listUsers()).find((user) => user.id === userId)].filter(Boolean) : await listUsers()).filter(
     (user) => {
       const preferences = user.profile.notifications ?? {};
       if (!preferences.enabled) return false;
@@ -93,7 +89,7 @@ export const runDigest = async ({ force = false, userId = null } = {}) => {
   const summary = { hour, considered: users.length, sent: 0, failed: 0, empty: 0 };
 
   for (const user of users) {
-    const { items, jobs } = buildDigest(user);
+    const { items, jobs } = await buildDigest(user);
 
     if (items.length === 0 && jobs.length === 0) {
       summary.empty += 1;
@@ -103,7 +99,7 @@ export const runDigest = async ({ force = false, userId = null } = {}) => {
     const copy = await writeDigestLine({ items, profile: user.profile });
     const body = jobs.length > 0 ? `${copy.body} · ${jobs.length} new job match${jobs.length === 1 ? '' : 'es'}` : copy.body;
 
-    const devices = devicesForUser(user.id);
+    const devices = await devicesForUser(user.id);
     const data = {
       type: 'digest',
       itemIds: items.map((item) => item.id),
@@ -112,7 +108,7 @@ export const runDigest = async ({ force = false, userId = null } = {}) => {
 
     if (devices.length === 0) {
       // Still record it — the app shows the history in-app on next open.
-      recordNotification({ userId: user.id, title: copy.title, body, data, status: 'skipped' });
+      await recordNotification({ userId: user.id, title: copy.title, body, data, status: 'skipped' });
       summary.empty += 1;
       continue;
     }
@@ -121,7 +117,7 @@ export const runDigest = async ({ force = false, userId = null } = {}) => {
       devices.map((device) => ({ to: device.token, title: copy.title, body, data })),
     );
 
-    recordNotification({
+    await recordNotification({
       userId: user.id,
       title: copy.title,
       body,

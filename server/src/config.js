@@ -16,7 +16,33 @@ const int = (value, fallback) => {
 export const config = {
   port: int(process.env.PORT, 4000),
   corsOrigin: process.env.CORS_ORIGIN || '*',
+
+  /**
+   * Postgres (Supabase) when set, SQLite otherwise.
+   *
+   * Use Supabase's **transaction pooler** string (port 6543), not the direct
+   * connection (5432). Serverless opens a connection per invocation and the
+   * direct endpoint runs out of them quickly; the pooler multiplexes them.
+   */
+  databaseUrl: process.env.DATABASE_URL || '',
+  /** Supabase presents its own certificate chain; verification is off by default. */
+  databaseSsl: bool(process.env.DATABASE_SSL, true),
+  /** Keep tiny in serverless — each warm instance holds its own pool. */
+  databaseMaxConnections: int(process.env.DATABASE_MAX_CONNECTIONS, 3),
+  /**
+   * Postgres schema to work in. Empty means the connection's default (`public`),
+   * which is what production uses. The test suite sets a distinct schema per
+   * file so the same suite that runs on SQLite can be pointed at a real Postgres
+   * without the files treading on each other — see `test/support/isolate.js`.
+   */
+  databaseSchema: process.env.DATABASE_SCHEMA || '',
+  /** Drop and recreate that schema on connect. Tests only — never in production. */
+  databaseSchemaReset: bool(process.env.DATABASE_SCHEMA_RESET, false),
+
   dbPath: process.env.DB_PATH || path.join(here, '..', 'data', 'kal-ukfinder.db'),
+
+  /** Shared secret so only the scheduler can trigger collection. */
+  cronSecret: process.env.CRON_SECRET || '',
 
   auth: {
     sessionDays: int(process.env.SESSION_DAYS, 30),

@@ -52,21 +52,17 @@ const windowStart = () => new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOS
 /**
  * @returns {{duplicate: boolean, reason?: string, existingId?: string}}
  */
-export const findJobDuplicate = (candidate) => {
-  const byUrl = db.prepare('SELECT id FROM jobs WHERE url = ?').get(candidate.url);
+export const findJobDuplicate = async (candidate) => {
+  const byUrl = (await db.get('SELECT id FROM jobs WHERE url = ?', [candidate.url]));
   if (byUrl) return { duplicate: true, reason: 'url', existingId: byUrl.id };
 
-  const byHash = db
-    .prepare('SELECT id FROM jobs WHERE content_hash = ? AND posted_at >= ?')
-    .get(candidate.contentHash, windowStart());
+  const byHash = (await db.get('SELECT id FROM jobs WHERE content_hash = ? AND posted_at >= ?', [candidate.contentHash, windowStart()]));
   if (byHash) return { duplicate: true, reason: 'content', existingId: byHash.id };
 
   // Only compare against the same employer — two employers can advertise the
   // same job title without it being a duplicate.
   if (candidate.company) {
-    const sameEmployer = db
-      .prepare('SELECT id, title FROM jobs WHERE company = ? AND posted_at >= ? LIMIT 200')
-      .all(candidate.company, windowStart());
+    const sameEmployer = (await db.all('SELECT id, title FROM jobs WHERE company = ? AND posted_at >= ? LIMIT 200', [candidate.company, windowStart()]));
 
     for (const row of sameEmployer) {
       if (similarity(row.title, candidate.title) >= SIMILARITY_THRESHOLD) {
@@ -78,20 +74,16 @@ export const findJobDuplicate = (candidate) => {
   return { duplicate: false };
 };
 
-export const findItemDuplicate = (candidate) => {
-  const byUrl = db.prepare('SELECT id FROM items WHERE url = ?').get(candidate.url);
+export const findItemDuplicate = async (candidate) => {
+  const byUrl = (await db.get('SELECT id FROM items WHERE url = ?', [candidate.url]));
   if (byUrl) return { duplicate: true, reason: 'url', existingId: byUrl.id };
 
-  const byHash = db
-    .prepare('SELECT id FROM items WHERE content_hash = ? AND published_at >= ?')
-    .get(candidate.contentHash, windowStart());
+  const byHash = (await db.get('SELECT id FROM items WHERE content_hash = ? AND published_at >= ?', [candidate.contentHash, windowStart()]));
   if (byHash) return { duplicate: true, reason: 'content', existingId: byHash.id };
 
   // Across publishers this time: the same announcement reported by several
   // outlets should appear once, from whoever we saw first.
-  const recent = db
-    .prepare('SELECT id, title FROM items WHERE published_at >= ? ORDER BY published_at DESC LIMIT 400')
-    .all(windowStart());
+  const recent = (await db.all('SELECT id, title FROM items WHERE published_at >= ? ORDER BY published_at DESC LIMIT 400', [windowStart()]));
 
   for (const row of recent) {
     if (similarity(row.title, candidate.title) >= SIMILARITY_THRESHOLD) {

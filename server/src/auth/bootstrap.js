@@ -12,9 +12,7 @@ const log = createLogger('bootstrap');
  * an account, so leaving the variables set in production is harmless.
  */
 export const bootstrapAdmin = async () => {
-  const existing = db
-    .prepare("SELECT COUNT(*) AS total FROM users WHERE role IN ('ADMIN','SUPER_ADMIN')")
-    .get().total;
+  const existing = (await db.get("SELECT COUNT(*) AS total FROM users WHERE role IN ('ADMIN','SUPER_ADMIN')", [])).total;
 
   if (existing > 0) return { created: false, reason: 'an administrator already exists' };
 
@@ -32,18 +30,18 @@ export const bootstrapAdmin = async () => {
     return { created: false, reason: problems[0] };
   }
 
-  const already = getUserByEmail(email);
-  const user = already ?? createUser({ displayName: 'Administrator' });
+  const already = await getUserByEmail(email);
+  const user = already ?? await createUser({ displayName: 'Administrator' });
 
   if (!already) {
-    attachCredentials(user.id, {
+    await attachCredentials(user.id, {
       email,
       passwordHash: await hashPassword(password),
       displayName: 'Administrator',
     });
   }
 
-  setRole(user.id, 'SUPER_ADMIN');
+  await setRole(user.id, 'SUPER_ADMIN');
   log.info(`administrator ready: ${email}`);
   return { created: true, email };
 };

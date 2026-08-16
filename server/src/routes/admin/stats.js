@@ -14,12 +14,12 @@ import { userCounts } from '../../store/users.js';
 export const adminStatsRouter = Router();
 
 /** Everything the dashboard needs, in one request (pr.md §5). */
-adminStatsRouter.get('/stats', (request, response) => {
-  const jobs = jobCounts();
-  const policies = itemCounts();
-  const sources = sourceCounts();
-  const users = userCounts();
-  const runs = runSummary();
+adminStatsRouter.get('/stats', async (request, response) => {
+  const jobs = await jobCounts();
+  const policies = await itemCounts();
+  const sources = await sourceCounts();
+  const users = await userCounts();
+  const runs = await runSummary();
 
   response.json({
     cards: {
@@ -43,40 +43,37 @@ adminStatsRouter.get('/stats', (request, response) => {
     },
     ai: { enabled: isAiEnabled(), mode: isAiEnabled() ? 'gemini' : 'rule-based' },
     latest: {
-      jobs: listJobs({ limit: 5, status: null }).map((job) => ({
+      jobs: (await listJobs({ limit: 5, status: null })).map((job) => ({
         id: job.id,
         title: job.title,
         company: job.company,
         postedAt: job.postedAt,
         status: job.status,
       })),
-      policies: listItems({ limit: 5, status: null }).map((item) => ({
+      policies: (await listItems({ limit: 5, status: null })).map((item) => ({
         id: item.id,
         headline: item.headline,
         source: item.source.name,
         publishedAt: item.publishedAt,
         status: item.status,
       })),
-      runs: listRuns({ pageSize: 8 }).data,
+      runs: (await listRuns({ pageSize: 8 })).data,
     },
   });
 });
 
 /** Collection volume per day, for the analytics page. */
-adminStatsRouter.get('/analytics', (request, response) => {
+adminStatsRouter.get('/analytics', async (request, response) => {
   const days = z.coerce.number().int().min(1).max(90).default(14).parse(request.query.days ?? 14);
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
-  const byDay = (table, column) =>
-    db
-      .prepare(`
+  const byDay = async (table, column) =>
+    (await db.all(`
         SELECT substr(${column}, 1, 10) AS day, COUNT(*) AS total
           FROM ${table} WHERE ${column} >= ? GROUP BY day ORDER BY day
-      `)
-      .all(since);
+      `, [since]));
 
-  const perSource = db
-    .prepare(`
+  const perSource = (await db.all(`
       SELECT s.id, s.name,
              COUNT(r.id) AS runs,
              SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) AS successes,
@@ -86,14 +83,19 @@ adminStatsRouter.get('/analytics', (request, response) => {
        GROUP BY s.id
        ORDER BY items DESC
        LIMIT 30
-    `)
-    .all(since);
+    `, [since]));
+
+  const [jobsPerDay, policiesPerDay, usersPerDay] = await Promise.all([
+    byDay('jobs', 'created_at'),
+    byDay('items', 'created_at'),
+    byDay('users', 'created_at'),
+  ]);
 
   response.json({
     days,
-    jobsPerDay: byDay('jobs', 'created_at'),
-    policiesPerDay: byDay('items', 'created_at'),
-    usersPerDay: byDay('users', 'created_at'),
+    jobsPerDay,
+    policiesPerDay,
+    usersPerDay,
     perSource: perSource.map((row) => ({
       id: row.id,
       name: row.name,
@@ -107,7 +109,7 @@ adminStatsRouter.get('/analytics', (request, response) => {
 
 // --- scrape logs (pr.md §33) -------------------------------------------------
 
-adminStatsRouter.get('/scrape-runs', (request, response) => {
+adminStatsRouter.get('/scrape-runs', async (request, response) => {
   const query = z
     .object({
       sourceId: z.string().optional(),
@@ -117,11 +119,11 @@ adminStatsRouter.get('/scrape-runs', (request, response) => {
     })
     .parse(request.query);
 
-  response.json(listRuns(query));
+  response.json(await listRuns(query));
 });
 
-adminStatsRouter.get('/scrape-runs/:id/errors', (request, response) => {
-  response.json({ errors: runErrors(request.params.id) });
+adminStatsRouter.get('/scrape-runs/:id/errors', async (request, response) => {
+  response.json({ errors: await runErrors(request.params.id) });
 });
 
 /** Run the scheduler tick immediately. */
@@ -131,8 +133,8 @@ adminStatsRouter.post('/sync', async (request, response) => {
 
 // --- settings (pr.md §31) ----------------------------------------------------
 
-const readSetting = (key, fallback) => {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+const readSetting = async (key, fallback) => {
+  const row = (await db.get('SELECT value FROM settings WHERE key = ?', [key]));
   if (!row) return fallback;
   try {
     return JSON.parse(row.value);
@@ -141,13 +143,13 @@ const readSetting = (key, fallback) => {
   }
 };
 
-adminStatsRouter.get('/settings', (request, response) => {
+adminStatsRouter.get('/settings', async (request, response) => {
   response.json({
     settings: {
-      defaultScrapeIntervalMinutes: readSetting('defaultScrapeIntervalMinutes', 30),
-      defaultModeration: readSetting('defaultModeration', 'AUTO_PUBLISH'),
-      retentionDays: readSetting('retentionDays', config.ingest.retentionDays),
-      allowRegistration: readSetting('allowRegistration', config.auth.allowRegistration),
+      defaultScrapeIntervalMinutes: await readSetting('defaultScrapeIntervalMinutes', 30),
+      defaultModeration: await readSetting('defaultModeration', 'AUTO_PUBLISH'),
+      retentionDays: await readSetting('retentionDays', config.ingest.retentionDays),
+      allowRegistration: await readSetting('allowRegistration', config.auth.allowRegistration),
     },
     readOnly: {
       aiEnabled: isAiEnabled(),
@@ -159,7 +161,7 @@ adminStatsRouter.get('/settings', (request, response) => {
   });
 });
 
-adminStatsRouter.put('/settings', (request, response) => {
+adminStatsRouter.put('/settings', async (request, response) => {
   const body = z
     .object({
       defaultScrapeIntervalMinutes: z.number().int().min(5).max(10_080).optional(),
@@ -169,15 +171,18 @@ adminStatsRouter.put('/settings', (request, response) => {
     })
     .parse(request.body);
 
-  const statement = db.prepare(`
+  const UPSERT_SETTING = `
     INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
     ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-  `);
+  `;
 
-  for (const [key, value] of Object.entries(body)) {
-    if (value === undefined) continue;
-    statement.run(key, JSON.stringify(value), new Date().toISOString());
-  }
+  // One transaction so a half-saved settings page is not possible.
+  await db.tx(async (tx) => {
+    for (const [key, value] of Object.entries(body)) {
+      if (value === undefined) continue;
+      await tx.run(UPSERT_SETTING, [key, JSON.stringify(value), new Date().toISOString()]);
+    }
+  });
 
   return response.json({ saved: true });
 });

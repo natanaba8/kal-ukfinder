@@ -52,7 +52,7 @@ const searchSchema = z.object({
  */
 jobsRouter.get('/jobs', optionalAuth, async (request, response) => {
   const query = searchSchema.parse(request.query);
-  const user = actingUser(request);
+  const user = await actingUser(request);
 
   if (query.live) {
     const fresh = await searchJobs({
@@ -62,7 +62,7 @@ jobsRouter.get('/jobs', optionalAuth, async (request, response) => {
       remoteOnly: query.remote,
       perPage: 40,
     });
-    for (const job of fresh) upsertJob(job);
+    for (const job of fresh) await upsertJob(job);
   }
 
   const filters = {
@@ -84,7 +84,7 @@ jobsRouter.get('/jobs', optionalAuth, async (request, response) => {
       : query.page;
   const pageSize = query.limit ?? query.pageSize;
 
-  const result = listJobsPaged({ ...filters, page, pageSize });
+  const result = await listJobsPaged({ ...filters, page, pageSize });
 
   const jobs = user
     ? result.data.map((job) => ({ ...job, match: scoreJobLexically(job, user.profile) }))
@@ -104,23 +104,23 @@ jobsRouter.get('/jobs', optionalAuth, async (request, response) => {
 });
 
 /** Filter options for the mobile filter sheet (pr.md §23). */
-jobsRouter.get('/jobs/categories', (request, response) => {
+jobsRouter.get('/jobs/categories', async (request, response) => {
   response.json({
-    categories: jobCategories(),
-    locations: jobLocations(),
-    organizations: jobOrganizations(),
+    categories: await jobCategories(),
+    locations: await jobLocations(),
+    organizations: await jobOrganizations(),
   });
 });
 
-jobsRouter.get('/jobs/:id', optionalAuth, (request, response) => {
-  const job = getJob(request.params.id);
+jobsRouter.get('/jobs/:id', optionalAuth, async (request, response) => {
+  const job = await getJob(request.params.id);
   if (!job || job.status !== 'published') return response.status(404).json({ error: 'Job not found' });
 
-  const user = actingUser(request);
+  const user = await actingUser(request);
   return response.json({
     job,
     match: user ? scoreJobLexically(job, user.profile) : null,
-    similar: listJobs({ search: job.category ?? job.title.split(' ')[0], limit: 5 }).filter(
+    similar: (await listJobs({ search: job.category ?? job.title.split(' ')[0], limit: 5 })).filter(
       (candidate) => candidate.id !== job.id,
     ),
   });
@@ -135,12 +135,12 @@ const matchSchema = z.object({
 /** POST /api/jobs/match — AI-ranked shortlist with reasons and gaps. */
 jobsRouter.post('/jobs/match', optionalAuth, async (request, response) => {
   const body = matchSchema.parse(request.body);
-  const user = actingUser(request);
+  const user = await actingUser(request);
   if (!user) return response.status(401).json({ error: 'Sign in to get personalised matches' });
 
   const pool = body.jobIds?.length
-    ? body.jobIds.map((id) => getJob(id)).filter(Boolean)
-    : listJobs({
+    ? (await Promise.all(body.jobIds.map((id) => getJob(id)))).filter(Boolean)
+    : await listJobs({
         location: user.profile.remoteOnly ? undefined : user.profile.location || undefined,
         remoteOnly: user.profile.remoteOnly,
         salaryMin: user.profile.salaryMin ?? undefined,

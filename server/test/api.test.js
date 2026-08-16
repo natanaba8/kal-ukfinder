@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
+import { isolateDatabase } from './support/isolate.js';
+
 // Isolate the test database before anything imports ./src/db.js.
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kal-ukfinder-test-'));
-process.env.DB_PATH = path.join(tempDir, 'test.db');
-process.env.INGEST_ENABLED = 'false';
-process.env.DIGEST_ENABLED = 'false';
+const tempDir = isolateDatabase('api');
 
 const { createApp } = await import('../src/index.js');
 const { db } = await import('../src/db.js');
@@ -33,7 +30,7 @@ before(async () => {
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  insertItem({
+  await insertItem({
     id: idForUrl('https://example.gov.uk/apprenticeship-reform'),
     kind: 'policy',
     sourceId: 'govuk-dfe',
@@ -54,7 +51,7 @@ before(async () => {
     aiModel: 'rule-based',
   });
 
-  upsertJob({
+  await upsertJob({
     source: 'sample',
     title: 'Junior React Developer',
     company: 'Test Co',
@@ -74,7 +71,7 @@ before(async () => {
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
   // Windows will not delete the directory while SQLite still holds the file.
-  db.close();
+  await db.close();
   fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3 });
 });
 
@@ -192,8 +189,8 @@ describe('jobs', () => {
     assert.equal(body.jobs.length, 0);
   });
 
-  it('scores lexical fit against a profile', () => {
-    const [job] = listJobs({ limit: 1 });
+  it('scores lexical fit against a profile', async () => {
+    const [job] = await listJobs({ limit: 1 });
     const strong = scoreJobLexically(job, { skills: ['react', 'typescript'], location: 'Manchester' });
     const weak = scoreJobLexically(job, { skills: ['welding'], location: 'Truro' });
     assert.ok(strong.score > weak.score);
@@ -322,8 +319,8 @@ describe('notification digest', () => {
 });
 
 describe('personalised ranking', () => {
-  it('puts matching topics above non-matching ones', () => {
-    insertItem({
+  it('puts matching topics above non-matching ones', async () => {
+    await insertItem({
       id: idForUrl('https://example.com/unrelated'),
       kind: 'news',
       sourceId: 'bbc-business',
@@ -341,7 +338,7 @@ describe('personalised ranking', () => {
       aiModel: 'rule-based',
     });
 
-    const ranked = rankedForProfile({ topics: ['apprenticeships'], audience: ['apprentices'] }, { limit: 5 });
+    const ranked = await rankedForProfile({ topics: ['apprenticeships'], audience: ['apprentices'] }, { limit: 5 });
     assert.equal(ranked[0].topics.includes('apprenticeships'), true);
   });
 });

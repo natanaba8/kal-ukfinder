@@ -8,8 +8,8 @@
 export default {
   id: 5,
   name: 'scrape-logs',
-  up(db) {
-    db.exec(`
+  async up(db) {
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS scrape_runs (
         id               TEXT PRIMARY KEY,
         source_id        TEXT,

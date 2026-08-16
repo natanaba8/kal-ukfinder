@@ -21,7 +21,7 @@ Three parts, one product:
         ┌──────────────────┼──────────────────┐
         ▼                  ▼                  ▼
   Authentication       Database         Content engine
-   roles · sessions   SQLite + migrations   RSS · API · Scraper
+   roles · sessions   Postgres or SQLite    RSS · API · Scraper
                                               │
                               normalise → dedupe → AI enrich → store
 ```
@@ -66,8 +66,9 @@ Nothing is scraped by default and every card links back to the original page.
 
 ## Quick start
 
-**Prerequisites:** Node 22.5 or newer (the API uses the built-in `node:sqlite`). No database server, no
-Docker, no build step for the backend.
+**Prerequisites:** Node 22.5 or newer (the API uses the built-in `node:sqlite` when no `DATABASE_URL` is
+set). Nothing to install for local development — no database server, no Docker, no build step for the
+backend. Production points the same code at Supabase Postgres; see [Deploying](#deploying).
 
 ```bash
 git clone <this repo>
@@ -186,7 +187,7 @@ publish keeps the record, which preserves attribution.
 | **Mobile UI** | **GlueStack UI** + NativeWind on the auth, Jobs and Policies screens; a themed StyleSheet kit on the rest |
 | **Admin panel** | React 19 · Vite 7 · Tailwind v4 · **shadcn/ui** · React Router · TanStack Query |
 | **Backend** | Node 22+ · Express 5 · zod · node-cron · cheerio |
-| **Database** | SQLite via the built-in `node:sqlite`, with versioned migrations |
+| **Database** | Postgres (Supabase) in production, SQLite via `node:sqlite` locally — one query layer, versioned migrations |
 | **AI** | Google Gemini, with a deterministic rule-based fallback for every feature |
 | **State** | TanStack Query on both front-ends |
 
@@ -214,7 +215,7 @@ kal-ukfinder/
 │   │   │   └── engine.js        Orchestrates the above, per source
 │   │   ├── scheduler/           Per-source intervals with exponential backoff
 │   │   ├── ai/                  Gemini + rule-based fallback, prompts, CV heuristics
-│   │   ├── store/               SQLite queries: items · jobs · sources · users · logs
+│   │   ├── store/               Queries: items · jobs · sources · users · logs
 │   │   ├── routes/              Public API, auth, and the guarded /api/admin routes
 │   │   └── notifications/       Expo push and the personalised digest
 │   └── test/                    120 tests, no API key needed
@@ -337,17 +338,20 @@ performs and asserts the response shapes its types declare.
 
 ## Deploying
 
-This is a monorepo with three deployables, and they do not all belong in the same place.
+This is a monorepo with three deployables.
 
-| Part | Where | Why |
+| Part | Where | Notes |
 | --- | --- | --- |
 | Web app | **Vercel** (static) | Pre-rendered HTML per route |
-| Admin panel | **Vercel** (static) | Vite SPA |
-| API | **Not Vercel** — Render, Railway, Fly, or any VPS | Needs a writable database file and a long-running scheduler |
+| API | **Vercel** (serverless) | Same project as the web app, so the app calls `/api` on its own origin |
+| Database | **Supabase** (Postgres) | The API is stateless; all state lives here |
+| Admin panel | **Vercel** (static) | Separate project, Vite SPA |
 
-**Deploy the API first.** Both front-ends are static and useless on their own — they have to be told where
-the backend is, at build time. Doing Vercel first means a site that loads and then reports it has no
-backend.
+The web app and the API deploy together from one Vercel project, which is what makes the app work with
+no `EXPO_PUBLIC_API_URL` at all — the browser calls `/api/feed` on the same origin it loaded from.
+
+**Set up Supabase first.** The API refuses to start usefully without a database, and both front-ends
+are static: a Vercel deploy with no database behind it loads and then reports errors on every screen.
 
 ### Vercel
 
@@ -404,34 +408,108 @@ npm run preview:web    # serves dist exactly as Vercel will, on :4173
 `scripts/serve-dist.mjs` mirrors `vercel.json` — the same cleanUrls, rewrites and fallback. If a URL works
 there it will work on Vercel. Verified across all 25 routes, including `/item/:id` and `/job/:id`.
 
-### The API — deploy this first
+### Supabase — set this up first
 
-**The Vercel site is inert without it.** With no API the app loads, renders its shell, and then every
-screen reports that it cannot reach a backend. This is the step people miss.
+Supabase provides the Postgres database. It does not host the API: Supabase runs Postgres, PostgREST,
+Auth and Edge Functions, none of which run a Node server. The Express API runs on Vercel and connects
+to Supabase over the normal Postgres protocol.
 
-`render.yaml` in the repo root makes it one click:
+1. **supabase.com → your project → Connect**.
+2. Copy the **Transaction pooler** string — the one on **port 6543**, host `…pooler.supabase.com`.
+   Not the direct connection on 5432, for two separate reasons:
+   - Serverless opens a connection per invocation and the direct endpoint runs out of them.
+   - **The direct host usually cannot be reached at all.** `db.<ref>.supabase.co` publishes only an
+     AAAA record — IPv4 on direct connections is a paid add-on — so on any network without IPv6 it
+     fails with `getaddrinfo ENOTFOUND`, which reads like a typo but is not one. The pooler is
+     dual-stack.
+3. Note the username changes: the pooler wants `postgres.<project-ref>`, not `postgres`.
+4. Replace `[YOUR-PASSWORD]` with your database password. If it contains `@ : / ? # &`, URL-encode it
+   (`@` → `%40`). A literal `@` gives the URL two delimiters and parsers disagree about which one wins.
 
-1. **render.com → New → Blueprint** → point it at this repository. It reads `render.yaml`, builds
-   `server/`, and health-checks `/api/health`.
-2. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in the Render dashboard (they are marked `sync: false`, so they
-   never live in the repo). The first administrator is created on boot.
-3. Edit `CORS_ORIGIN` in `render.yaml` to your two Vercel URLs.
-4. Copy the URL Render gives you, e.g. `https://kal-ukfinder-api.onrender.com`.
+Put it in `server/.env` for local use:
 
-Then in Vercel, set `EXPO_PUBLIC_API_URL` (web app) and `VITE_API_URL` (admin panel) to that URL and
-**redeploy both** — those are build-time variables, so setting them alone changes nothing.
+```bash
+DATABASE_URL=postgresql://postgres.abcdefgh:PASSWORD@aws-0-eu-west-2.pooler.supabase.com:6543/postgres
+```
 
-On Render's free plan, comment out the `disk:` block. The app still works: migrations run and the 26
-sources re-ingest on startup, so content comes back by itself. What does not survive a restart is user
-accounts and saved items — fine for a demo, not for real use.
+Then check it actually works before deploying anything:
 
-Railway, Fly.io or any VPS work equally well: set the env vars from `.env.example`, give it a writable
-path for `server/data/kal-ukfinder.db`, run `npm start`.
+```bash
+cd server
+npm run db:check
+```
 
-**Why not Vercel.** Serverless functions have an ephemeral filesystem, so the SQLite database would vanish
-between invocations, and `node-cron` cannot keep a scheduler alive between requests. Hosting the API on
-Vercel would mean moving the store to a hosted Postgres and replacing the scheduler with Vercel Cron — a
-real change, not a config tweak. `.vercelignore` keeps `server/` out of the web deployment.
+That connects, applies the migrations, writes a row, reads it back, confirms case-insensitive search
+works, and deletes the row. It prints the host and port it used — without the password — so a wrong
+endpoint is obvious. Nothing else needs doing: the schema is created by the migrations in
+`server/src/migrations/`, so there is no SQL to paste into the Supabase editor.
+
+To run the whole test suite against Supabase rather than SQLite, just leave `DATABASE_URL` in
+`server/.env` and run `npm test`. Each test file works in its own Postgres schema
+(`kal_test_api`, `kal_test_auth`, …), dropped and recreated per run, so the files stay isolated exactly
+as they are with separate SQLite files. That is the check that proves both backends agree.
+
+All 129 tests pass on both. Expect roughly 20 seconds on SQLite and about six minutes on Supabase —
+the difference is entirely network round trips to the region, not the queries.
+
+**One thing to know about Supabase's schemas.** Supabase ships its own `auth.users` table, and it has
+an `email` column. Any query against `information_schema` must therefore filter on
+`table_schema = current_schema()`, or it will find `auth.users` and draw the wrong conclusion about
+your own `public.users`. `addColumn` in `migrations/runner.js` does this, with a note explaining why.
+
+### The API on Vercel
+
+`api/index.js` exports the same Express app as `npm run server`, as a serverless function. It is part of
+the **web app's** Vercel project, so `/api/*` and the site come from one domain and one deploy.
+
+Set these in **Vercel → Settings → Environment Variables**:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | the pooler string from above |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the first administrator, created on the first request |
+| `CRON_SECRET` | any long random string — see below |
+| `CORS_ORIGIN` | your admin panel's URL |
+| `GEMINI_API_KEY` | optional; without it the AI features use the built-in fallback |
+
+`DATABASE_URL` is server-side only. It is never read by the app or admin bundles, and must not be
+prefixed `EXPO_PUBLIC_` or `VITE_` — anything with those prefixes is compiled into JavaScript the
+browser downloads.
+
+**Scheduling.** `node-cron` needs a process that stays alive, which a function does not have, so the
+schedulers in `server/src/scheduler/` are only started when `server/src/index.js` is the entry point.
+On Vercel the work is driven by Vercel Cron instead, declared in `vercel.json`:
+
+| Path | Schedule | Does |
+| --- | --- | --- |
+| `/api/cron/ingest` | `0 6 * * *` | Collects every source whose interval has elapsed |
+| `/api/cron/digest` | `0 7 * * *` | Sends the daily briefing |
+| `/api/cron/clean` | `17 3 * * *` | Prunes old items, jobs, run logs and expired sessions |
+
+These are daily because Vercel's Hobby plan only allows daily cron. On Pro, change `0 6 * * *` to
+`0 */2 * * *` for two-hourly collection — the per-source intervals in the admin panel still apply, so a
+source set to 30 minutes is simply collected at the next cron run.
+
+`CRON_SECRET` is what stops anyone else calling those URLs. Vercel automatically sends
+`Authorization: Bearer $CRON_SECRET` on its own cron requests. **If the variable is not set the endpoints
+refuse every request** rather than running unprotected — so an unset secret shows up as a failing cron
+job, not a silently open endpoint.
+
+### Alternative: a long-running server
+
+`render.yaml` still works, and is the better choice if you want minute-by-minute collection without a
+Vercel Pro plan. It runs `server/` as an ordinary Node process with its real scheduler.
+
+1. **render.com → New → Blueprint** → point it at this repository.
+2. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in the Render dashboard (marked `sync: false`, so they never
+   live in the repo).
+3. Set `DATABASE_URL` to the same Supabase string, or leave it unset to use the SQLite file on a disk.
+4. Edit `CORS_ORIGIN` in `render.yaml` to your Vercel URLs.
+
+If you do this, set `EXPO_PUBLIC_API_URL` (web app) and `VITE_API_URL` (admin panel) to the Render URL
+and **redeploy both** — those are build-time variables, so setting them alone changes nothing.
+
+Railway, Fly.io or any VPS work the same way: set the variables from `.env.example` and run `npm start`.
 
 ### Mobile
 

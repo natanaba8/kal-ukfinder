@@ -7,8 +7,8 @@
 export default {
   id: 1,
   name: 'initial',
-  up(db) {
-    db.exec(`
+  async up(db) {
+    await db.exec(`
 CREATE TABLE IF NOT EXISTS items (
   id              TEXT PRIMARY KEY,
   kind            TEXT NOT NULL,

@@ -2,7 +2,12 @@
   "name": "kal-ukfinder",
   "version": "0.1.0",
   "private": true,
-  "description": "Kal-UKFinder \u2014 UK jobs, careers news, government policy briefings and an AI career coach, on mobile and web.",
+  "type": "module",
+  "//workspaces": "`server` is a workspace so a root install also installs the API's dependencies — the serverless functions in api/ import from it and Vercel installs from this file. The apps are deliberately left out: Expo and Vite each expect their own node_modules.",
+  "workspaces": [
+    "server"
+  ],
+  "description": "Kal-UKFinder — UK jobs, careers news, government policy briefings and an AI career coach, on mobile and web.",
   "scripts": {
     "install:all": "npm --prefix server install && npm --prefix apps/mobile install && npm --prefix apps/admin install",
     "dev": "node scripts/dev.mjs",
@@ -27,5 +32,9 @@
   },
   "engines": {
     "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.3"
   }
 }

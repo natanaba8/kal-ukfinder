@@ -16,11 +16,11 @@ metaRouter.get('/health', (request, response) => {
   response.json({ ok: true, service: 'kal-ukfinder-api', time: new Date().toISOString() });
 });
 
-metaRouter.get('/status', (request, response) => {
+metaRouter.get('/status', async (request, response) => {
   response.json({
-    items: countItems(),
-    jobs: countJobs(),
-    latestItemPublishedAt: latestPublishedAt(),
+    items: await countItems(),
+    jobs: await countJobs(),
+    latestItemPublishedAt: await latestPublishedAt(),
     ai: {
       enabled: isAiEnabled(),
       fastModel: isAiEnabled() ? config.ai.fastModel : null,
@@ -28,13 +28,13 @@ metaRouter.get('/status', (request, response) => {
       mode: isAiEnabled() ? 'gemini' : 'rule-based',
     },
     jobProviders: jobProvidersConfigured(),
-    sources: sourceCounts().active,
-    sourceHealth: sourceCounts(),
+    sources: (await sourceCounts()).active,
+    sourceHealth: await sourceCounts(),
     ingest: {
       running: isIngestRunning(),
       scheduled: config.ingest.enabled,
       cron: config.ingest.cron,
-      last: lastIngestRun(),
+      last: await lastIngestRun(),
     },
   });
 });
@@ -52,8 +52,8 @@ metaRouter.get('/taxonomy', (request, response) => {
  * The public "where this comes from" register. Reads the live source table, so
  * a source an admin adds in the panel shows up here without a deploy.
  */
-metaRouter.get('/sources', (request, response) => {
-  const { data } = listSources({ active: true, pageSize: 200 });
+metaRouter.get('/sources', async (request, response) => {
+  const { data } = await listSources({ active: true, pageSize: 200 });
 
   response.json({
     sources: data.map((source) => ({

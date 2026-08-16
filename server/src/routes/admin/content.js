@@ -40,11 +40,11 @@ const statusFilter = (status) => (status === 'all' ? null : status);
 
 // --- jobs -------------------------------------------------------------------
 
-adminContentRouter.get('/jobs', (request, response) => {
+adminContentRouter.get('/jobs', async (request, response) => {
   const query = listQuery.extend({ location: z.string().optional() }).parse(request.query);
 
   response.json(
-    listJobsPaged({
+    await listJobsPaged({
       search: query.search,
       status: statusFilter(query.status),
       category: query.category,
@@ -56,15 +56,15 @@ adminContentRouter.get('/jobs', (request, response) => {
   );
 });
 
-adminContentRouter.get('/jobs/filters', (request, response) => {
+adminContentRouter.get('/jobs/filters', async (request, response) => {
   response.json({
-    categories: jobCategories(),
-    locations: jobLocations(),
-    organizations: jobOrganizations(),
+    categories: await jobCategories(),
+    locations: await jobLocations(),
+    organizations: await jobOrganizations(),
   });
 });
 
-adminContentRouter.patch('/jobs/:id', (request, response) => {
+adminContentRouter.patch('/jobs/:id', async (request, response) => {
   const body = z
     .object({
       status: z.enum(STATUSES).optional(),
@@ -76,28 +76,28 @@ adminContentRouter.patch('/jobs/:id', (request, response) => {
     })
     .parse(request.body);
 
-  if (!getJob(request.params.id)) return response.status(404).json({ error: 'Job not found' });
+  if (!await getJob(request.params.id)) return response.status(404).json({ error: 'Job not found' });
 
-  if (body.status) setJobStatus(request.params.id, body.status);
-  if (body.featured !== undefined) setJobFeatured(request.params.id, body.featured);
+  if (body.status) await setJobStatus(request.params.id, body.status);
+  if (body.featured !== undefined) await setJobFeatured(request.params.id, body.featured);
 
-  const job = updateJobMeta(request.params.id, body);
+  const job = await updateJobMeta(request.params.id, body);
   return response.json({ job });
 });
 
-adminContentRouter.delete('/jobs/:id', (request, response) => {
-  const removed = deleteJob(request.params.id);
+adminContentRouter.delete('/jobs/:id', async (request, response) => {
+  const removed = await deleteJob(request.params.id);
   if (removed === 0) return response.status(404).json({ error: 'Job not found' });
   return response.json({ deleted: true });
 });
 
 // --- policies / articles ----------------------------------------------------
 
-adminContentRouter.get('/policies', (request, response) => {
+adminContentRouter.get('/policies', async (request, response) => {
   const query = listQuery.parse(request.query);
 
   response.json(
-    listItemsPaged({
+    await listItemsPaged({
       search: query.search,
       status: statusFilter(query.status),
       category: query.category,
@@ -108,11 +108,11 @@ adminContentRouter.get('/policies', (request, response) => {
   );
 });
 
-adminContentRouter.get('/policies/filters', (request, response) => {
-  response.json({ categories: distinctCategories() });
+adminContentRouter.get('/policies/filters', async (request, response) => {
+  response.json({ categories: await distinctCategories() });
 });
 
-adminContentRouter.patch('/policies/:id', (request, response) => {
+adminContentRouter.patch('/policies/:id', async (request, response) => {
   const body = z
     .object({
       status: z.enum(STATUSES).optional(),
@@ -124,23 +124,23 @@ adminContentRouter.patch('/policies/:id', (request, response) => {
     })
     .parse(request.body);
 
-  if (!getItem(request.params.id)) return response.status(404).json({ error: 'Article not found' });
+  if (!await getItem(request.params.id)) return response.status(404).json({ error: 'Article not found' });
 
-  if (body.status) setItemStatus(request.params.id, body.status);
-  if (body.featured !== undefined) setItemFeatured(request.params.id, body.featured);
+  if (body.status) await setItemStatus(request.params.id, body.status);
+  if (body.featured !== undefined) await setItemFeatured(request.params.id, body.featured);
 
-  const item = updateItemMeta(request.params.id, body);
+  const item = await updateItemMeta(request.params.id, body);
   return response.json({ item });
 });
 
-adminContentRouter.delete('/policies/:id', (request, response) => {
-  const removed = deleteItem(request.params.id);
+adminContentRouter.delete('/policies/:id', async (request, response) => {
+  const removed = await deleteItem(request.params.id);
   if (removed === 0) return response.status(404).json({ error: 'Article not found' });
   return response.json({ deleted: true });
 });
 
 /** Bulk moderation so a queue can be cleared without 40 clicks. */
-adminContentRouter.post('/bulk', (request, response) => {
+adminContentRouter.post('/bulk', async (request, response) => {
   const body = z
     .object({
       entity: z.enum(['job', 'policy']),
@@ -155,19 +155,19 @@ adminContentRouter.post('/bulk', (request, response) => {
   for (const id of body.ids) {
     switch (body.action) {
       case 'publish':
-        affected += isJob ? setJobStatus(id, 'published') : setItemStatus(id, 'published');
+        affected += isJob ? await setJobStatus(id, 'published') : await setItemStatus(id, 'published');
         break;
       case 'hide':
-        affected += isJob ? setJobStatus(id, 'hidden') : setItemStatus(id, 'hidden');
+        affected += isJob ? await setJobStatus(id, 'hidden') : await setItemStatus(id, 'hidden');
         break;
       case 'feature':
-        affected += isJob ? setJobFeatured(id, true) : setItemFeatured(id, true);
+        affected += isJob ? await setJobFeatured(id, true) : await setItemFeatured(id, true);
         break;
       case 'unfeature':
-        affected += isJob ? setJobFeatured(id, false) : setItemFeatured(id, false);
+        affected += isJob ? await setJobFeatured(id, false) : await setItemFeatured(id, false);
         break;
       case 'delete':
-        affected += isJob ? deleteJob(id) : deleteItem(id);
+        affected += isJob ? await deleteJob(id) : await deleteItem(id);
         break;
       default:
         break;

@@ -73,12 +73,12 @@ export const endpointFor = (source) => {
   return source.rssUrl ?? source.apiUrl ?? source.scrapeUrl ?? source.baseUrl;
 };
 
-export const getSource = (id) => {
-  const row = db.prepare('SELECT * FROM sources WHERE id = ?').get(id);
+export const getSource = async (id) => {
+  const row = (await db.get('SELECT * FROM sources WHERE id = ?', [id]));
   return row ? rowToSource(row) : null;
 };
 
-export const listSources = ({ search, contentType, method, active, status, page = 1, pageSize = 50 } = {}) => {
+export const listSources = async ({ search, contentType, method, active, status, page = 1, pageSize = 50 } = {}) => {
   const where = [];
   const params = [];
 
@@ -104,19 +104,17 @@ export const listSources = ({ search, contentType, method, active, status, page 
   }
 
   const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '';
-  const total = db.prepare(`SELECT COUNT(*) AS total FROM sources${clause}`).get(...params).total;
+  const total = (await db.get(`SELECT COUNT(*) AS total FROM sources${clause}`, [...params])).total;
   const limit = Math.min(200, Math.max(1, pageSize));
 
-  const rows = db
-    .prepare(`SELECT * FROM sources${clause} ORDER BY active DESC, name COLLATE NOCASE LIMIT ? OFFSET ?`)
-    .all(...params, limit, (Math.max(1, page) - 1) * limit);
+  const rows = (await db.all(`SELECT * FROM sources${clause} ORDER BY active DESC, LOWER(name) LIMIT ? OFFSET ?`, [...params, limit, (Math.max(1, page) - 1) * limit]));
 
   return { data: rows.map(rowToSource), total, page: Math.max(1, page), pageSize: limit };
 };
 
 /** Every active source, used by the scheduler and the ingest CLI. */
-export const activeSources = () =>
-  db.prepare('SELECT * FROM sources WHERE active = 1 ORDER BY name').all().map(rowToSource);
+export const activeSources = async () =>
+  (await db.all('SELECT * FROM sources WHERE active = 1 ORDER BY name', [])).map(rowToSource);
 
 /**
  * Sources whose next run is due.
@@ -124,8 +122,8 @@ export const activeSources = () =>
  * A source that keeps failing backs off exponentially — 1x, 2x, 4x … up to 24x
  * its interval — so a dead site is retried occasionally rather than every tick.
  */
-export const dueSources = (now = Date.now()) =>
-  activeSources().filter((source) => {
+export const dueSources = async (now = Date.now()) =>
+  (await activeSources()).filter((source) => {
     if (!source.lastSyncAt) return true;
 
     const backoff = Math.min(24, 2 ** Math.max(0, source.consecutiveFailures - 1));
@@ -140,25 +138,24 @@ const slugify = (value) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'source';
 
-const uniqueId = (name) => {
+const uniqueId = async (name) => {
   const base = slugify(name);
-  if (!db.prepare('SELECT 1 FROM sources WHERE id = ?').get(base)) return base;
+  if (!(await db.get('SELECT 1 FROM sources WHERE id = ?', [base]))) return base;
   return `${base}-${crypto.randomBytes(3).toString('hex')}`;
 };
 
-export const createSource = (input, createdBy = null) => {
-  const id = input.id ?? uniqueId(input.name);
+export const createSource = async (input, createdBy = null) => {
+  const id = input.id ?? (await uniqueId(input.name));
   const timestamp = nowIso();
 
-  db.prepare(`
+  (await db.run(`
     INSERT INTO sources (
       id, name, publisher, base_url, content_type, method, resolved_method, rss_url, api_url,
       api_provider, scrape_url, selectors, request_headers, trust, default_topics, default_audience,
       active, moderation, scrape_interval_minutes, max_items_per_run, last_status, created_by,
       created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'never', ?, ?, ?)
-  `).run(
-    id,
+  `, [id,
     bind(input.name),
     bind(input.publisher ?? ''),
     bind(input.baseUrl),
@@ -180,10 +177,9 @@ export const createSource = (input, createdBy = null) => {
     bind(input.maxItemsPerRun ?? 15),
     bind(createdBy),
     timestamp,
-    timestamp,
-  );
+    timestamp,]));
 
-  return getSource(id);
+  return await getSource(id);
 };
 
 const COLUMN_FOR = {
@@ -211,8 +207,8 @@ const JSON_COLUMN_FOR = {
   defaultAudience: 'default_audience',
 };
 
-export const updateSource = (id, patch) => {
-  if (!getSource(id)) return null;
+export const updateSource = async (id, patch) => {
+  if (!(await getSource(id))) return null;
 
   const assignments = [];
   const params = [];
@@ -229,41 +225,39 @@ export const updateSource = (id, patch) => {
     params.push(toJson(patch[key]));
   }
 
-  if (assignments.length === 0) return getSource(id);
+  if (assignments.length === 0) return await getSource(id);
 
   assignments.push('updated_at = ?');
   params.push(nowIso(), id);
 
-  db.prepare(`UPDATE sources SET ${assignments.join(', ')} WHERE id = ?`).run(...params);
-  return getSource(id);
+  (await db.run(`UPDATE sources SET ${assignments.join(', ')} WHERE id = ?`, [...params]));
+  return await getSource(id);
 };
 
-export const deleteSource = (id) => db.prepare('DELETE FROM sources WHERE id = ?').run(id).changes;
+export const deleteSource = async (id) => (await db.run('DELETE FROM sources WHERE id = ?', [id])).changes;
 
 /** Called by the engine after every run so the table shows live health. */
-export const recordSyncResult = (id, { status, error = null }) => {
+export const recordSyncResult = async (id, { status, error = null }) => {
   const failed = status === 'failed';
 
-  db.prepare(`
+  (await db.run(`
     UPDATE sources
        SET last_sync_at = ?, last_status = ?, last_error = ?,
            consecutive_failures = CASE WHEN ? THEN consecutive_failures + 1 ELSE 0 END,
            updated_at = ?
      WHERE id = ?
-  `).run(nowIso(), status, bind(error), failed ? 1 : 0, nowIso(), id);
+  `, [nowIso(), status, bind(error), failed ? 1 : 0, nowIso(), id]));
 };
 
-export const sourceCounts = () => {
-  const row = db
-    .prepare(`
+export const sourceCounts = async () => {
+  const row = (await db.get(`
       SELECT
         COUNT(*) AS total,
         SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active,
         SUM(CASE WHEN last_status = 'failed' THEN 1 ELSE 0 END) AS failing,
         SUM(CASE WHEN last_status = 'never' THEN 1 ELSE 0 END) AS never_run
       FROM sources
-    `)
-    .get();
+    `, []));
 
   return {
     total: row.total ?? 0,

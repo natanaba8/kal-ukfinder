@@ -8,6 +8,15 @@ const origin = (url) => {
   }
 };
 
+const INSERT = `
+  INSERT INTO sources (
+    id, name, publisher, base_url, content_type, method, resolved_method, rss_url,
+    api_provider, api_url, trust, default_topics, default_audience, active, moderation,
+    scrape_interval_minutes, max_items_per_run, last_status, created_by, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT DO NOTHING
+`;
+
 /**
  * Moves the 26 hardcoded feeds into the `sources` table.
  *
@@ -20,20 +29,11 @@ const origin = (url) => {
 export default {
   id: 6,
   name: 'seed-sources',
-  up(db) {
+  async up(db) {
     const now = new Date().toISOString();
 
-    const insert = db.prepare(`
-      INSERT INTO sources (
-        id, name, publisher, base_url, content_type, method, resolved_method, rss_url,
-        api_provider, api_url, trust, default_topics, default_audience, active, moderation,
-        scrape_interval_minutes, max_items_per_run, last_status, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT DO NOTHING
-    `);
-
     for (const feed of FEEDS) {
-      insert.run(
+      await db.run(INSERT, [
         feed.id,
         feed.name,
         feed.publisher,
@@ -55,19 +55,25 @@ export default {
         'seed',
         now,
         now,
-      );
+      ]);
     }
 
     // The job boards are API sources so they appear in the admin panel too.
-    // They stay inactive unless credentials are configured — the engine checks.
+    // They stay dormant unless credentials are configured — the engine checks.
     const providers = [
       { id: 'adzuna', name: 'Adzuna', publisher: 'Adzuna', url: 'https://api.adzuna.com', provider: 'adzuna' },
       { id: 'reed', name: 'Reed', publisher: 'Reed.co.uk', url: 'https://www.reed.co.uk/api', provider: 'reed' },
-      { id: 'sample', name: 'Sample vacancies', publisher: 'Bundled with the app', url: 'https://findajob.dwp.gov.uk', provider: 'sample' },
+      {
+        id: 'sample',
+        name: 'Sample vacancies',
+        publisher: 'Bundled with the app',
+        url: 'https://findajob.dwp.gov.uk',
+        provider: 'sample',
+      },
     ];
 
     for (const provider of providers) {
-      insert.run(
+      await db.run(INSERT, [
         provider.id,
         provider.name,
         provider.publisher,
@@ -89,11 +95,11 @@ export default {
         'seed',
         now,
         now,
-      );
+      ]);
     }
 
     // Backfill the foreign key on content collected before sources existed.
-    db.exec(`
+    await db.exec(`
       UPDATE items SET db_source_id = source_id
        WHERE db_source_id IS NULL
          AND source_id IN (SELECT id FROM sources);

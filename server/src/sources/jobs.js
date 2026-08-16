@@ -132,7 +132,7 @@ export const fetchSample = ({ query, location, salaryMin, remoteOnly }) => {
  * Falls back to the bundled sample set when nothing is configured.
  */
 export const searchJobs = async (params = {}) => {
-  const providers = await Promise.allSettled([fetchAdzuna(params), fetchReed(params)]);
+  const providers = await Promise.allSettled([await fetchAdzuna(params), await fetchReed(params)]);
 
   const live = providers
     .filter((result) => result.status === 'fulfilled' && Array.isArray(result.value))

@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { collectSource, previewSource } from '../../content/engine.js';
 import { detectSource } from '../../content/detect.js';
+import { isUniqueViolation } from '../../db.js';
 import { scrapeLimiter } from '../../middleware/rate-limit.js';
 import { lastRunFor } from '../../store/scrape-logs.js';
 import {
@@ -53,7 +54,7 @@ const clean = (input) => ({
   scrapeUrl: input.scrapeUrl || null,
 });
 
-adminSourcesRouter.get('/sources', (request, response) => {
+adminSourcesRouter.get('/sources', async (request, response) => {
   const query = z
     .object({
       search: z.string().optional(),
@@ -66,24 +67,26 @@ adminSourcesRouter.get('/sources', (request, response) => {
     })
     .parse(request.query);
 
-  const result = listSources({
+  const result = await listSources({
     ...query,
     active: query.active === undefined ? undefined : query.active === 'true',
   });
 
-  response.json({
-    ...result,
-    data: result.data.map((source) => ({ ...source, lastRun: lastRunFor(source.id) })),
-  });
+  // One small query per source; safe to run together, and the page is at most 200.
+  const data = await Promise.all(
+    result.data.map(async (source) => ({ ...source, lastRun: await lastRunFor(source.id) })),
+  );
+
+  response.json({ ...result, data });
 });
 
-adminSourcesRouter.get('/sources/:id', (request, response) => {
-  const source = getSource(request.params.id);
+adminSourcesRouter.get('/sources/:id', async (request, response) => {
+  const source = await getSource(request.params.id);
   if (!source) return response.status(404).json({ error: 'Source not found' });
-  return response.json({ source, lastRun: lastRunFor(source.id) });
+  return response.json({ source, lastRun: await lastRunFor(source.id) });
 });
 
-adminSourcesRouter.post('/sources', (request, response) => {
+adminSourcesRouter.post('/sources', async (request, response) => {
   const body = sourceSchema.parse(request.body);
 
   if (body.method === 'SCRAPER' && !body.selectors?.item) {
@@ -94,32 +97,32 @@ adminSourcesRouter.post('/sources', (request, response) => {
   }
 
   try {
-    const source = createSource(clean(body), request.auth?.userId ?? null);
+    const source = await createSource(clean(body), request.auth?.userId ?? null);
     return response.status(201).json({ source });
   } catch (error) {
-    if (String(error.message).includes('UNIQUE')) {
+    if (isUniqueViolation(error)) {
       return response.status(409).json({ error: 'A source with that address already exists', code: 'DUPLICATE' });
     }
     throw error;
   }
 });
 
-adminSourcesRouter.patch('/sources/:id', (request, response) => {
+adminSourcesRouter.patch('/sources/:id', async (request, response) => {
   const body = sourceSchema.partial().parse(request.body);
-  const source = updateSource(request.params.id, clean(body));
+  const source = await updateSource(request.params.id, clean(body));
   if (!source) return response.status(404).json({ error: 'Source not found' });
   return response.json({ source });
 });
 
-adminSourcesRouter.delete('/sources/:id', (request, response) => {
-  const removed = deleteSource(request.params.id);
+adminSourcesRouter.delete('/sources/:id', async (request, response) => {
+  const removed = await deleteSource(request.params.id);
   if (removed === 0) return response.status(404).json({ error: 'Source not found' });
   return response.json({ deleted: true });
 });
 
-adminSourcesRouter.post('/sources/:id/active', (request, response) => {
+adminSourcesRouter.post('/sources/:id/active', async (request, response) => {
   const { active } = z.object({ active: z.boolean() }).parse(request.body);
-  const source = updateSource(request.params.id, { active });
+  const source = await updateSource(request.params.id, { active });
   if (!source) return response.status(404).json({ error: 'Source not found' });
   return response.json({ source });
 });
@@ -146,7 +149,7 @@ adminSourcesRouter.post('/sources/test', scrapeLimiter, async (request, response
     })
     .parse(request.body);
 
-  const saved = body.id ? getSource(body.id) : null;
+  const saved = body.id ? await getSource(body.id) : null;
   if (body.id && !saved) return response.status(404).json({ error: 'Source not found' });
 
   const draft = body.draft ? clean(body.draft) : {};
@@ -180,7 +183,7 @@ adminSourcesRouter.post('/sources/test', scrapeLimiter, async (request, response
 
 /** Manual "Sync Now" (pr.md §12). */
 adminSourcesRouter.post('/sources/:id/sync', scrapeLimiter, async (request, response) => {
-  const source = getSource(request.params.id);
+  const source = await getSource(request.params.id);
   if (!source) return response.status(404).json({ error: 'Source not found' });
 
   const result = await collectSource(source, { triggeredBy: 'admin' });

@@ -31,7 +31,7 @@ export const tick = async ({ triggeredBy = 'scheduler' } = {}) => {
     return { skipped: true };
   }
 
-  const due = dueSources();
+  const due = await dueSources();
   if (due.length === 0) return { due: 0, results: [] };
 
   running = true;
@@ -63,17 +63,17 @@ export const tick = async ({ triggeredBy = 'scheduler' } = {}) => {
 
 /** Collect every active source now, regardless of when it last ran. */
 export const collectAll = async ({ triggeredBy = 'cli' } = {}) => {
-  const sources = activeSources();
+  const sources = await activeSources();
   const results = await collectMany(sources, { concurrency: config.ingest.concurrency, triggeredBy });
   return { sources: sources.length, results };
 };
 
-const housekeeping = () => {
+const housekeeping = async () => {
   const removed = {
-    items: pruneItems(config.ingest.retentionDays),
-    jobs: pruneJobs(config.ingest.retentionDays),
-    runs: pruneRuns(30),
-    sessions: pruneExpiredSessions(),
+    items: await pruneItems(config.ingest.retentionDays),
+    jobs: await pruneJobs(config.ingest.retentionDays),
+    runs: await pruneRuns(30),
+    sessions: await pruneExpiredSessions(),
   };
 
   const total = Object.values(removed).reduce((sum, value) => sum + value, 0);
@@ -87,7 +87,7 @@ export const startScheduler = () => {
   }
 
   tasks.push(
-    cron.schedule('* * * * *', () => {
+    cron.schedule('* * * * *', async () => {
       tick().catch((error) => log.error(`tick failed: ${error.message}`));
     }),
   );

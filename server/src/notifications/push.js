@@ -61,15 +61,17 @@ export const sendPush = async (messages) => {
       }
 
       const payload = await response.json();
-      (payload.data ?? []).forEach((ticket, index) => {
+      // `sent`/`failed` are read after the loop, so the ticket walk has to finish
+      // before it — a forEach with an async callback would not wait.
+      for (const [index, ticket] of (payload.data ?? []).entries()) {
         if (ticket.status === 'ok') {
           sent += 1;
-          return;
+          continue;
         }
         failed += 1;
         log.warn(`ticket error: ${ticket.message}`);
-        if (ticket.details?.error === 'DeviceNotRegistered') removeDevice(batch[index].to);
-      });
+        if (ticket.details?.error === 'DeviceNotRegistered') await removeDevice(batch[index].to);
+      }
     } catch (error) {
       failed += batch.length;
       log.warn(`push batch failed: ${error.message}`);

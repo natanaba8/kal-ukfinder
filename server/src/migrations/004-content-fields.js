@@ -10,28 +10,28 @@ import { addColumn } from './runner.js';
 export default {
   id: 4,
   name: 'content-fields',
-  up(db) {
+  async up(db) {
     // --- jobs (§14) --------------------------------------------------------
-    addColumn(db, 'jobs', 'db_source_id', 'TEXT REFERENCES sources (id)');
-    addColumn(db, 'jobs', 'employment_type', 'TEXT');
-    addColumn(db, 'jobs', 'requirements', 'TEXT');
-    addColumn(db, 'jobs', 'deadline', 'TEXT');
-    addColumn(db, 'jobs', 'source_url', 'TEXT');
-    addColumn(db, 'jobs', 'content_hash', 'TEXT');
-    addColumn(db, 'jobs', 'status', "TEXT NOT NULL DEFAULT 'published'");
-    addColumn(db, 'jobs', 'featured', 'INTEGER NOT NULL DEFAULT 0');
-    addColumn(db, 'jobs', 'updated_at', 'TEXT');
+    await addColumn(db, 'jobs', 'db_source_id', 'TEXT REFERENCES sources (id)');
+    await addColumn(db, 'jobs', 'employment_type', 'TEXT');
+    await addColumn(db, 'jobs', 'requirements', 'TEXT');
+    await addColumn(db, 'jobs', 'deadline', 'TEXT');
+    await addColumn(db, 'jobs', 'source_url', 'TEXT');
+    await addColumn(db, 'jobs', 'content_hash', 'TEXT');
+    await addColumn(db, 'jobs', 'status', "TEXT NOT NULL DEFAULT 'published'");
+    await addColumn(db, 'jobs', 'featured', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn(db, 'jobs', 'updated_at', 'TEXT');
 
     // --- items / policies (§15) -------------------------------------------
-    addColumn(db, 'items', 'db_source_id', 'TEXT REFERENCES sources (id)');
-    addColumn(db, 'items', 'category', 'TEXT');
-    addColumn(db, 'items', 'source_url', 'TEXT');
-    addColumn(db, 'items', 'content_hash', 'TEXT');
-    addColumn(db, 'items', 'status', "TEXT NOT NULL DEFAULT 'published'");
-    addColumn(db, 'items', 'featured', 'INTEGER NOT NULL DEFAULT 0');
-    addColumn(db, 'items', 'updated_at', 'TEXT');
+    await addColumn(db, 'items', 'db_source_id', 'TEXT REFERENCES sources (id)');
+    await addColumn(db, 'items', 'category', 'TEXT');
+    await addColumn(db, 'items', 'source_url', 'TEXT');
+    await addColumn(db, 'items', 'content_hash', 'TEXT');
+    await addColumn(db, 'items', 'status', "TEXT NOT NULL DEFAULT 'published'");
+    await addColumn(db, 'items', 'featured', 'INTEGER NOT NULL DEFAULT 0');
+    await addColumn(db, 'items', 'updated_at', 'TEXT');
 
-    db.exec(`
+    await db.exec(`
       CREATE INDEX IF NOT EXISTS jobs_content_hash ON jobs (content_hash);
       CREATE INDEX IF NOT EXISTS jobs_location ON jobs (location);
       CREATE INDEX IF NOT EXISTS jobs_company ON jobs (company);

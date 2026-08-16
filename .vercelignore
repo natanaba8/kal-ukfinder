@@ -1,13 +1,14 @@
-# The API is not deployed to Vercel — it needs a persistent SQLite file and a
-# long-running scheduler, neither of which a serverless function provides.
-# See "Deploying" in README.md.
-server/
+# `server/` IS deployed — `api/index.js` imports the Express app from it and runs
+# it as a serverless function against Supabase Postgres. Only the local SQLite
+# file and its test fixtures are excluded.
+server/data/
+server/test/
 
 # The admin panel is its own Vercel project (Root Directory: apps/admin).
 apps/admin/
 
 node_modules/
 docs/
-**/dist/
 **/.expo/
+apps/mobile/dist/
 *.log

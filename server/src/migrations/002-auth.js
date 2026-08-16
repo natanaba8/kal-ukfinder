@@ -9,16 +9,16 @@ import { addColumn } from './runner.js';
 export default {
   id: 2,
   name: 'auth',
-  up(db) {
-    addColumn(db, 'users', 'email', 'TEXT');
-    addColumn(db, 'users', 'password_hash', 'TEXT');
-    addColumn(db, 'users', 'role', "TEXT NOT NULL DEFAULT 'USER'");
-    addColumn(db, 'users', 'status', "TEXT NOT NULL DEFAULT 'ACTIVE'");
-    addColumn(db, 'users', 'email_verified_at', 'TEXT');
-    addColumn(db, 'users', 'last_login_at', 'TEXT');
-    addColumn(db, 'users', 'anonymous', 'INTEGER NOT NULL DEFAULT 1');
+  async up(db) {
+    await addColumn(db, 'users', 'email', 'TEXT');
+    await addColumn(db, 'users', 'password_hash', 'TEXT');
+    await addColumn(db, 'users', 'role', "TEXT NOT NULL DEFAULT 'USER'");
+    await addColumn(db, 'users', 'status', "TEXT NOT NULL DEFAULT 'ACTIVE'");
+    await addColumn(db, 'users', 'email_verified_at', 'TEXT');
+    await addColumn(db, 'users', 'last_login_at', 'TEXT');
+    await addColumn(db, 'users', 'anonymous', 'INTEGER NOT NULL DEFAULT 1');
 
-    db.exec(`
+    await db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users (email) WHERE email IS NOT NULL;
       CREATE INDEX IF NOT EXISTS users_role ON users (role);
 

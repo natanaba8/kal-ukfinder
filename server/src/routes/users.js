@@ -47,9 +47,9 @@ const profileSchema = z.object({
  * reachable by id so the app works before anyone signs up — that id is the
  * only thing that identifies them and it never leaves the device.
  */
-const ensureSelf = (request, response, next) => {
+const ensureSelf = async (request, response, next) => {
   if (!request.auth) {
-    const target = getUser(request.params.id);
+    const target = await getUser(request.params.id);
     if (target && !target.anonymous) {
       return response.status(401).json({ error: 'Sign in to continue', code: 'UNAUTHENTICATED' });
     }
@@ -63,89 +63,89 @@ const ensureSelf = (request, response, next) => {
 };
 
 /** The authenticated equivalents of the `/users/:id` routes. */
-usersRouter.get('/users/me', requireAuth, (request, response) => {
-  const user = getUser(request.auth.userId);
+usersRouter.get('/users/me', requireAuth, async (request, response) => {
+  const user = await getUser(request.auth.userId);
   if (!user) return response.status(404).json({ error: 'Account not found' });
-  return response.json({ user, devices: devicesForUser(user.id).length });
+  return response.json({ user, devices: (await devicesForUser(user.id)).length });
 });
 
-usersRouter.patch('/users/me', requireAuth, (request, response) => {
+usersRouter.patch('/users/me', requireAuth, async (request, response) => {
   const body = z
     .object({ displayName: z.string().max(80).optional(), profile: profileSchema.optional() })
     .parse(request.body ?? {});
 
-  const user = updateUser(request.auth.userId, body);
+  const user = await updateUser(request.auth.userId, body);
   if (!user) return response.status(404).json({ error: 'Account not found' });
   return response.json({ user });
 });
 
 /** POST /api/users — anonymous account, the id is the app's only credential. */
-usersRouter.post('/users', (request, response) => {
+usersRouter.post('/users', async (request, response) => {
   const body = z
     .object({ displayName: z.string().max(80).optional(), profile: profileSchema.optional() })
     .parse(request.body ?? {});
 
-  response.status(201).json({ user: createUser(body) });
+  response.status(201).json({ user: await createUser(body) });
 });
 
-usersRouter.get('/users/:id', optionalAuth, ensureSelf, (request, response) => {
-  const user = getUser(request.params.id);
+usersRouter.get('/users/:id', optionalAuth, ensureSelf, async (request, response) => {
+  const user = await getUser(request.params.id);
   if (!user) return response.status(404).json({ error: 'User not found' });
-  return response.json({ user, devices: devicesForUser(user.id).length });
+  return response.json({ user, devices: (await devicesForUser(user.id)).length });
 });
 
-usersRouter.patch('/users/:id', optionalAuth, ensureSelf, (request, response) => {
+usersRouter.patch('/users/:id', optionalAuth, ensureSelf, async (request, response) => {
   const body = z
     .object({ displayName: z.string().max(80).optional(), profile: profileSchema.optional() })
     .parse(request.body ?? {});
 
-  const user = updateUser(request.params.id, body);
+  const user = await updateUser(request.params.id, body);
   if (!user) return response.status(404).json({ error: 'User not found' });
   return response.json({ user });
 });
 
 // --- push tokens ------------------------------------------------------------
 
-usersRouter.post('/users/:id/devices', optionalAuth, ensureSelf, (request, response) => {
+usersRouter.post('/users/:id/devices', optionalAuth, ensureSelf, async (request, response) => {
   const body = z
     .object({ token: z.string().min(10).max(300), platform: z.string().max(20).optional() })
     .parse(request.body);
 
-  const user = getUser(request.params.id);
+  const user = await getUser(request.params.id);
   if (!user) return response.status(404).json({ error: 'User not found' });
 
-  saveDevice({ token: body.token, userId: user.id, platform: body.platform });
-  return response.status(201).json({ registered: true, devices: devicesForUser(user.id).length });
+  await saveDevice({ token: body.token, userId: user.id, platform: body.platform });
+  return response.status(201).json({ registered: true, devices: (await devicesForUser(user.id)).length });
 });
 
-usersRouter.delete('/users/:id/devices/:token', optionalAuth, ensureSelf, (request, response) => {
-  response.json({ removed: removeDevice(request.params.token) });
+usersRouter.delete('/users/:id/devices/:token', optionalAuth, ensureSelf, async (request, response) => {
+  response.json({ removed: await removeDevice(request.params.token) });
 });
 
 // --- saved items ------------------------------------------------------------
 
 const entitySchema = z.object({ entity: z.enum(['item', 'job']), entityId: z.string().min(1) });
 
-usersRouter.get('/users/:id/saved', optionalAuth, ensureSelf, (request, response) => {
-  const user = getUser(request.params.id);
+usersRouter.get('/users/:id/saved', optionalAuth, ensureSelf, async (request, response) => {
+  const user = await getUser(request.params.id);
   if (!user) return response.status(404).json({ error: 'User not found' });
 
   return response.json({
-    items: savedIds(user.id, 'item').map(getItem).filter(Boolean),
-    jobs: savedIds(user.id, 'job').map(getJob).filter(Boolean),
+    items: (await savedIds(user.id, 'item')).map(getItem).filter(Boolean),
+    jobs: (await savedIds(user.id, 'job')).map(getJob).filter(Boolean),
   });
 });
 
-usersRouter.post('/users/:id/saved', optionalAuth, ensureSelf, (request, response) => {
+usersRouter.post('/users/:id/saved', optionalAuth, ensureSelf, async (request, response) => {
   const body = entitySchema.parse(request.body);
-  const user = getUser(request.params.id);
+  const user = await getUser(request.params.id);
   if (!user) return response.status(404).json({ error: 'User not found' });
 
-  saveEntity(user.id, body.entity, body.entityId);
+  await saveEntity(user.id, body.entity, body.entityId);
   return response.status(201).json({ saved: true });
 });
 
-usersRouter.delete('/users/:id/saved/:entity/:entityId', optionalAuth, ensureSelf, (request, response) => {
+usersRouter.delete('/users/:id/saved/:entity/:entityId', optionalAuth, ensureSelf, async (request, response) => {
   const { entity, entityId } = entitySchema.parse(request.params);
-  response.json({ removed: unsaveEntity(request.params.id, entity, entityId) });
+  response.json({ removed: await unsaveEntity(request.params.id, entity, entityId) });
 });

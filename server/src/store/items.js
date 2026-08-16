@@ -34,7 +34,7 @@ const rowToItem = (row) => ({
 
 export { rowToItem };
 
-const insertStatement = db.prepare(`
+const INSERT_ITEM = `
   INSERT INTO items (
     id, kind, source_id, source_name, source_trust, title, url, author, published_at, image_url,
     raw_summary, ai_headline, ai_summary, ai_impact, ai_action, topics, audience, region,
@@ -42,10 +42,10 @@ const insertStatement = db.prepare(`
     db_source_id, category, source_url, content_hash, status, featured, updated_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT (url) DO NOTHING
-`);
+`;
 
-export const insertItem = (item) =>
-  insertStatement.run(
+export const insertItem = async (item) =>
+  await db.run(INSERT_ITEM, [
     bind(item.id),
     bind(item.kind),
     bind(item.sourceId),
@@ -75,12 +75,12 @@ export const insertItem = (item) =>
     bind(item.status ?? 'published'),
     bind(item.featured ? 1 : 0),
     nowIso(),
-  );
+  ]);
 
-export const knownUrls = (urls) => {
+export const knownUrls = async (urls) => {
   if (urls.length === 0) return new Set();
   const placeholders = urls.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT url FROM items WHERE url IN (${placeholders})`).all(...urls);
+  const rows = (await db.all(`SELECT url FROM items WHERE url IN (${placeholders})`, [...urls]));
   return new Set(rows.map((row) => row.url));
 };
 
@@ -144,49 +144,45 @@ const buildFilters = ({
  * @param {number} [filters.limit]
  * @param {number} [filters.offset]
  */
-export const listItems = ({ limit = 30, offset = 0, ...filters } = {}) => {
+export const listItems = async ({ limit = 30, offset = 0, ...filters } = {}) => {
   const { clause, params } = buildFilters(filters);
 
-  return db
-    .prepare(`${SELECT}${clause} ORDER BY featured DESC, published_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, Math.min(100, limit), offset)
+  return (await db.all(`${SELECT}${clause} ORDER BY featured DESC, published_at DESC LIMIT ? OFFSET ?`, [...params, Math.min(100, limit), offset]))
     .map(rowToItem);
 };
 
 /** Paginated form used by the public API and the admin tables (pr.md §25, §36). */
-export const listItemsPaged = ({ page = 1, pageSize = 20, ...filters } = {}) => {
+export const listItemsPaged = async ({ page = 1, pageSize = 20, ...filters } = {}) => {
   const { clause, params } = buildFilters(filters);
-  const total = db.prepare(`SELECT COUNT(*) AS total FROM items${clause}`).get(...params).total;
+  const total = (await db.get(`SELECT COUNT(*) AS total FROM items${clause}`, [...params])).total;
   const limit = Math.min(100, Math.max(1, pageSize));
   const currentPage = Math.max(1, page);
 
-  const data = db
-    .prepare(`${SELECT}${clause} ORDER BY featured DESC, published_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, limit, (currentPage - 1) * limit)
+  const data = (await db.all(`${SELECT}${clause} ORDER BY featured DESC, published_at DESC LIMIT ? OFFSET ?`, [...params, limit, (currentPage - 1) * limit]))
     .map(rowToItem);
 
   return { data, total, page: currentPage, pageSize: limit, pages: Math.ceil(total / limit) };
 };
 
-export const getItem = (id) => {
-  const row = db.prepare(`${SELECT} WHERE id = ?`).get(id);
+export const getItem = async (id) => {
+  const row = (await db.get(`${SELECT} WHERE id = ?`, [id]));
   return row ? rowToItem(row) : null;
 };
 
-export const countItems = () => db.prepare('SELECT COUNT(*) AS total FROM items').get().total;
+export const countItems = async () => (await db.get('SELECT COUNT(*) AS total FROM items', [])).total;
 
 /** Admin moderation actions (pr.md §26, §34). */
-export const setItemStatus = (id, status) =>
-  db.prepare('UPDATE items SET status = ?, updated_at = ? WHERE id = ?').run(status, nowIso(), id).changes;
+export const setItemStatus = async (id, status) =>
+  (await db.run('UPDATE items SET status = ?, updated_at = ? WHERE id = ?', [status, nowIso(), id])).changes;
 
-export const setItemFeatured = (id, featured) =>
-  db.prepare('UPDATE items SET featured = ?, updated_at = ? WHERE id = ?').run(featured ? 1 : 0, nowIso(), id)
+export const setItemFeatured = async (id, featured) =>
+  (await db.run('UPDATE items SET featured = ?, updated_at = ? WHERE id = ?', [featured ? 1 : 0, nowIso(), id]))
     .changes;
 
-export const deleteItem = (id) => db.prepare('DELETE FROM items WHERE id = ?').run(id).changes;
+export const deleteItem = async (id) => (await db.run('DELETE FROM items WHERE id = ?', [id])).changes;
 
 /** Metadata only — the source's own words are never rewritten (pr.md §26). */
-export const updateItemMeta = (id, { category, topics, audience, importance }) => {
+export const updateItemMeta = async (id, { category, topics, audience, importance }) => {
   const assignments = [];
   const params = [];
 
@@ -206,26 +202,24 @@ export const updateItemMeta = (id, { category, topics, audience, importance }) =
     assignments.push('importance = ?');
     params.push(Math.min(5, Math.max(1, Number(importance) || 3)));
   }
-  if (assignments.length === 0) return getItem(id);
+  if (assignments.length === 0) return await getItem(id);
 
   assignments.push('updated_at = ?');
   params.push(nowIso(), id);
 
-  db.prepare(`UPDATE items SET ${assignments.join(', ')} WHERE id = ?`).run(...params);
-  return getItem(id);
+  (await db.run(`UPDATE items SET ${assignments.join(', ')} WHERE id = ?`, [...params]));
+  return await getItem(id);
 };
 
-export const itemCounts = () => {
-  const row = db
-    .prepare(`
+export const itemCounts = async () => {
+  const row = (await db.get(`
       SELECT COUNT(*) AS total,
              SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) AS published,
              SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
              SUM(CASE WHEN status = 'hidden' THEN 1 ELSE 0 END) AS hidden,
              SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS today
         FROM items
-    `)
-    .get(new Date(Date.now() - 86_400_000).toISOString());
+    `, [new Date(Date.now() - 86_400_000).toISOString()]));
 
   return {
     total: row.total ?? 0,
@@ -236,27 +230,25 @@ export const itemCounts = () => {
   };
 };
 
-export const distinctCategories = () =>
-  db
-    .prepare("SELECT category, COUNT(*) AS total FROM items WHERE category IS NOT NULL AND category != '' GROUP BY category ORDER BY total DESC LIMIT 60")
-    .all()
+export const distinctCategories = async () =>
+  (await db.all("SELECT category, COUNT(*) AS total FROM items WHERE category IS NOT NULL AND category != '' GROUP BY category ORDER BY total DESC LIMIT 60", []))
     .map((row) => ({ category: row.category, total: row.total }));
 
-export const latestPublishedAt = () =>
-  db.prepare('SELECT MAX(published_at) AS latest FROM items').get().latest ?? null;
+export const latestPublishedAt = async () =>
+  (await db.get('SELECT MAX(published_at) AS latest FROM items', [])).latest ?? null;
 
-export const pruneItems = (days) => {
+export const pruneItems = async (days) => {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-  return db.prepare('DELETE FROM items WHERE published_at < ?').run(cutoff).changes;
+  return (await db.run('DELETE FROM items WHERE published_at < ?', [cutoff])).changes;
 };
 
 /**
  * Personalised ranking: recency, editorial importance, and overlap with the
  * topics/audiences the user picked in onboarding.
  */
-export const rankedForProfile = (profile = {}, { limit = 40, kind } = {}) => {
+export const rankedForProfile = async (profile = {}, { limit = 40, kind } = {}) => {
   // 100 is the ceiling listItems enforces — the most recent window we rank over.
-  const pool = listItems({ kind, limit: 100 });
+  const pool = await listItems({ kind, limit: 100 });
   const topics = new Set(profile.topics ?? []);
   const audiences = new Set(profile.audience ?? []);
   const now = Date.now();

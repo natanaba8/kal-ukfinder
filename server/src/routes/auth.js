@@ -67,23 +67,23 @@ authRouter.post('/auth/register', authLimiter, async (request, response) => {
     return response.status(400).json({ error: problems[0], code: 'WEAK_PASSWORD', details: problems });
   }
 
-  if (getUserByEmail(body.email)) {
+  if (await getUserByEmail(body.email)) {
     return response.status(409).json({ error: 'An account with that email already exists', code: 'EMAIL_TAKEN' });
   }
 
   const passwordHash = await hashPassword(body.password);
 
   // Claim the anonymous record so saved items and coach history carry over.
-  const existing = body.anonymousUserId ? getUser(body.anonymousUserId) : null;
-  const target = existing && existing.anonymous ? existing : createUser({ displayName: body.displayName ?? '' });
-  const user = attachCredentials(target.id, {
+  const existing = body.anonymousUserId ? await getUser(body.anonymousUserId) : null;
+  const target = existing && existing.anonymous ? existing : await createUser({ displayName: body.displayName ?? '' });
+  const user = await attachCredentials(target.id, {
     email: body.email,
     passwordHash,
     displayName: body.displayName ?? '',
   });
 
-  recordLogin(user.id);
-  const session = createSession({ userId: user.id, ...context(request) });
+  await recordLogin(user.id);
+  const session = await createSession({ userId: user.id, ...context(request) });
 
   log.info(`registered ${normaliseEmail(body.email)}${existing?.anonymous ? ' (claimed anonymous account)' : ''}`);
   return response.status(201).json({ user: publicUser(user), token: session.token, expiresAt: session.expiresAt });
@@ -93,10 +93,10 @@ authRouter.post('/auth/register', authLimiter, async (request, response) => {
 
 authRouter.post('/auth/login', authLimiter, async (request, response) => {
   const body = credentials.parse(request.body);
-  const user = getUserByEmail(body.email);
+  const user = await getUserByEmail(body.email);
 
   // Same response and similar timing whether or not the email exists.
-  const storedHash = user ? getPasswordHash(user.id) : null;
+  const storedHash = user ? await getPasswordHash(user.id) : null;
   const ok = await verifyPassword(body.password, storedHash ?? 'scrypt$32768$8$1$AAAA$AAAA');
 
   if (!user || !storedHash || !ok) {
@@ -106,36 +106,36 @@ authRouter.post('/auth/login', authLimiter, async (request, response) => {
     return response.status(403).json({ error: 'This account has been disabled', code: 'ACCOUNT_DISABLED' });
   }
 
-  recordLogin(user.id);
-  const session = createSession({ userId: user.id, ...context(request) });
+  await recordLogin(user.id);
+  const session = await createSession({ userId: user.id, ...context(request) });
 
   return response.json({ user: publicUser(user), token: session.token, expiresAt: session.expiresAt });
 });
 
 // --- session lifecycle ------------------------------------------------------
 
-authRouter.post('/auth/refresh', (request, response) => {
+authRouter.post('/auth/refresh', async (request, response) => {
   const token = z.object({ token: z.string().min(10) }).parse(request.body).token;
-  const rotated = rotateSession(token, context(request));
+  const rotated = await rotateSession(token, context(request));
 
   if (!rotated) {
     return response.status(401).json({ error: 'Your session has expired. Sign in again.', code: 'SESSION_EXPIRED' });
   }
 
-  const user = getUser(rotated.userId);
+  const user = await getUser(rotated.userId);
   return response.json({ user: publicUser(user), token: rotated.token, expiresAt: rotated.expiresAt });
 });
 
-authRouter.post('/auth/logout', requireAuth, (request, response) => {
+authRouter.post('/auth/logout', requireAuth, async (request, response) => {
   const header = request.get('authorization') ?? '';
-  revokeSession(header.split(' ')[1] ?? '');
+  await revokeSession(header.split(' ')[1] ?? '');
   response.json({ loggedOut: true });
 });
 
-authRouter.get('/auth/me', requireAuth, (request, response) => {
-  const user = getUser(request.auth.userId);
+authRouter.get('/auth/me', requireAuth, async (request, response) => {
+  const user = await getUser(request.auth.userId);
   if (!user) return response.status(404).json({ error: 'Account not found' });
-  return response.json({ user: publicUser(user), sessions: activeSessionCount(user.id) });
+  return response.json({ user: publicUser(user), sessions: await activeSessionCount(user.id) });
 });
 
 // --- password management ----------------------------------------------------
@@ -145,7 +145,7 @@ authRouter.post('/auth/change-password', requireAuth, async (request, response) 
     .object({ currentPassword: z.string().max(200), newPassword: z.string().max(200) })
     .parse(request.body);
 
-  const storedHash = getPasswordHash(request.auth.userId);
+  const storedHash = await getPasswordHash(request.auth.userId);
   if (!storedHash || !(await verifyPassword(body.currentPassword, storedHash))) {
     return response.status(401).json({ error: 'Your current password is incorrect', code: 'INVALID_CREDENTIALS' });
   }
@@ -156,23 +156,23 @@ authRouter.post('/auth/change-password', requireAuth, async (request, response) 
   }
 
   await setPasswordHash(request.auth.userId, await hashPassword(body.newPassword));
-  revokeAllForUser(request.auth.userId);
+  await revokeAllForUser(request.auth.userId);
 
   // Give them a working session back so they are not kicked out of the app.
-  const session = createSession({ userId: request.auth.userId, ...context(request) });
+  const session = await createSession({ userId: request.auth.userId, ...context(request) });
   return response.json({ changed: true, token: session.token, expiresAt: session.expiresAt });
 });
 
-authRouter.post('/auth/forgot-password', authLimiter, (request, response) => {
+authRouter.post('/auth/forgot-password', authLimiter, async (request, response) => {
   const { email } = z.object({ email: z.string().email().max(200) }).parse(request.body);
-  const user = getUserByEmail(email);
+  const user = await getUserByEmail(email);
 
   // Always the same answer — never confirm whether an address is registered.
   const payload = { sent: true, message: 'If that email has an account, a reset link is on its way.' };
 
   if (!user) return response.json(payload);
 
-  const token = createPasswordReset(user.id);
+  const token = await createPasswordReset(user.id);
   const link = `${config.auth.adminUrl}/reset-password?token=${token}`;
 
   // No mail transport is configured in this project. The token is logged so the
@@ -192,16 +192,16 @@ authRouter.post('/auth/reset-password', authLimiter, async (request, response) =
     return response.status(400).json({ error: problems[0], code: 'WEAK_PASSWORD', details: problems });
   }
 
-  const userId = consumePasswordReset(body.token);
+  const userId = await consumePasswordReset(body.token);
   if (!userId) {
     return response.status(400).json({ error: 'That reset link is invalid or has expired', code: 'INVALID_TOKEN' });
   }
 
   await setPasswordHash(userId, await hashPassword(body.password));
-  revokeAllForUser(userId);
+  await revokeAllForUser(userId);
 
-  const session = createSession({ userId, ...context(request) });
-  return response.json({ reset: true, user: publicUser(getUser(userId)), token: session.token });
+  const session = await createSession({ userId, ...context(request) });
+  return response.json({ reset: true, user: publicUser(await getUser(userId)), token: session.token });
 });
 
 export { publicUser };

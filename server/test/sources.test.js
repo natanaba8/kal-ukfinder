@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kal-sources-test-'));
-process.env.DB_PATH = path.join(tempDir, 'test.db');
-process.env.INGEST_ENABLED = 'false';
-process.env.DIGEST_ENABLED = 'false';
+import { isolateDatabase } from './support/isolate.js';
+
+const tempDir = isolateDatabase('sources');
 process.env.NODE_ENV = 'test';
 process.env.SCRAPE_POLITENESS_MS = '0';
 
@@ -56,7 +53,7 @@ before(async () => {
     body: JSON.stringify({ email: 'admin@example.com', password: 'correct-horse-42' }),
   }).then((response) => response.json());
 
-  setRole(registered.user.id, 'ADMIN');
+  await setRole(registered.user.id, 'ADMIN');
 
   const login = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
@@ -70,7 +67,7 @@ before(async () => {
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
   await site.close();
-  db.close();
+  await db.close();
   fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3 });
 });
 
@@ -162,7 +159,7 @@ describe('auto-detection', () => {
 
 describe('collection', () => {
   it('collects an RSS source, stores articles and logs the run', async () => {
-    const source = createSource({
+    const source = await createSource({
       name: 'Fixture Policy',
       baseUrl: `${site.baseUrl}/feed.xml`,
       rssUrl: `${site.baseUrl}/feed.xml`,
@@ -176,19 +173,19 @@ describe('collection', () => {
     assert.equal(result.status, 'success');
     assert.equal(result.itemsNew, 3);
 
-    const stored = listItems({ limit: 10 });
+    const stored = await listItems({ limit: 10 });
     assert.equal(stored.length, 3);
     assert.equal(stored[0].kind, 'policy', 'an official source produces policy items');
     assert.ok(stored[0].summary.length > 0, 'items are summarised on the way in');
     assert.ok(stored[0].contentHash ?? true);
 
-    const runs = listRuns({ sourceId: source.id });
+    const runs = await listRuns({ sourceId: source.id });
     assert.equal(runs.data[0].status, 'success');
     assert.equal(runs.data[0].itemsNew, 3);
   });
 
   it('skips everything on a second run', async () => {
-    const source = listSources({ search: 'Fixture Policy' }).data[0];
+    const source = (await listSources({ search: 'Fixture Policy' })).data[0];
     const again = await collectSource(source, { triggeredBy: 'cli' });
 
     assert.equal(again.itemsNew, 0);
@@ -196,7 +193,7 @@ describe('collection', () => {
   });
 
   it('detects a syndicated copy from a different publisher as a duplicate', async () => {
-    const source = createSource({
+    const source = await createSource({
       name: 'Fixture Syndicate',
       baseUrl: `${site.baseUrl}/feed-extra.xml`,
       rssUrl: `${site.baseUrl}/feed-extra.xml`,
@@ -212,7 +209,7 @@ describe('collection', () => {
   });
 
   it('scrapes a job listing page using configured selectors', async () => {
-    const source = createSource({
+    const source = await createSource({
       name: 'Fixture Jobs',
       baseUrl: `${site.baseUrl}/jobs`,
       scrapeUrl: `${site.baseUrl}/jobs`,
@@ -234,7 +231,7 @@ describe('collection', () => {
     assert.equal(result.status, 'success');
     assert.equal(result.itemsNew, 3);
 
-    const jobs = listJobs({ limit: 10 });
+    const jobs = await listJobs({ limit: 10 });
     assert.equal(jobs.length, 3);
 
     const nurse = jobs.find((job) => job.title.includes('Staff Nurse'));
@@ -245,7 +242,7 @@ describe('collection', () => {
   });
 
   it('collects a generic JSON API with field mapping', async () => {
-    const source = createSource({
+    const source = await createSource({
       name: 'Fixture API',
       baseUrl: `${site.baseUrl}/api/jobs`,
       apiUrl: `${site.baseUrl}/api/jobs`,
@@ -258,13 +255,13 @@ describe('collection', () => {
     const result = await collectSource(source, { triggeredBy: 'cli' });
     assert.equal(result.itemsNew, 2);
 
-    const engineer = listJobs({ search: 'Software Engineer' })[0];
+    const engineer = (await listJobs({ search: 'Software Engineer' }))[0];
     assert.equal(engineer.company, 'Meridian Digital');
     assert.equal(engineer.location, 'Bristol');
   });
 
   it('records a failure against the source without throwing', async () => {
-    const source = createSource({
+    const source = await createSource({
       name: 'Fixture Broken',
       baseUrl: `${site.baseUrl}/broken`,
       rssUrl: `${site.baseUrl}/broken`,
@@ -277,7 +274,7 @@ describe('collection', () => {
     assert.equal(result.status, 'failed');
     assert.ok(result.error);
 
-    const reloaded = getSource(source.id);
+    const reloaded = await getSource(source.id);
     assert.equal(reloaded.lastStatus, 'failed');
     assert.equal(reloaded.consecutiveFailures, 1);
 
@@ -287,8 +284,8 @@ describe('collection', () => {
 });
 
 describe('scheduling', () => {
-  it('only returns sources whose interval has elapsed, and backs off failures', () => {
-    const source = createSource({
+  it('only returns sources whose interval has elapsed, and backs off failures', async () => {
+    const source = await createSource({
       name: 'Fixture Schedule',
       baseUrl: `${site.baseUrl}/schedule-test`,
       rssUrl: `${site.baseUrl}/schedule-test`,
@@ -298,25 +295,25 @@ describe('scheduling', () => {
       active: true,
     });
 
-    assert.ok(dueSources().some((entry) => entry.id === source.id), 'a source that never ran is due');
+    assert.ok((await dueSources()).some((entry) => entry.id === source.id), 'a source that never ran is due');
 
-    recordSyncResult(source.id, { status: 'success' });
-    assert.equal(dueSources().some((entry) => entry.id === source.id), false, 'not due straight after a run');
+    await recordSyncResult(source.id, { status: 'success' });
+    assert.equal((await dueSources()).some((entry) => entry.id === source.id), false, 'not due straight after a run');
 
     // 31 minutes later it is due again.
-    assert.ok(dueSources(Date.now() + 31 * 60_000).some((entry) => entry.id === source.id));
+    assert.ok((await dueSources(Date.now() + 31 * 60_000)).some((entry) => entry.id === source.id));
 
-    recordSyncResult(source.id, { status: 'failed', error: 'boom' });
-    recordSyncResult(source.id, { status: 'failed', error: 'boom' });
+    await recordSyncResult(source.id, { status: 'failed', error: 'boom' });
+    await recordSyncResult(source.id, { status: 'failed', error: 'boom' });
     assert.equal(
-      dueSources(Date.now() + 31 * 60_000).some((entry) => entry.id === source.id),
+      (await dueSources(Date.now() + 31 * 60_000)).some((entry) => entry.id === source.id),
       false,
       'after two failures the wait doubles',
     );
   });
 
-  it('respects an inactive source', () => {
-    const source = createSource({
+  it('respects an inactive source', async () => {
+    const source = await createSource({
       name: 'Fixture Inactive',
       baseUrl: `${site.baseUrl}/inactive`,
       contentType: 'POLICY',
@@ -324,9 +321,9 @@ describe('scheduling', () => {
       active: false,
     });
 
-    assert.equal(dueSources().some((entry) => entry.id === source.id), false);
-    updateSource(source.id, { active: true });
-    assert.ok(dueSources().some((entry) => entry.id === source.id));
+    assert.equal((await dueSources()).some((entry) => entry.id === source.id), false);
+    await updateSource(source.id, { active: true });
+    assert.ok((await dueSources()).some((entry) => entry.id === source.id));
   });
 });
 
@@ -449,7 +446,7 @@ describe('admin source API', () => {
 
 describe('admin content moderation', () => {
   it('hides an article so it disappears from the public API', async () => {
-    const [item] = listItems({ limit: 1 });
+    const [item] = await listItems({ limit: 1 });
 
     const hidden = await api(`/api/admin/policies/${item.id}`, {
       method: 'PATCH',
@@ -468,7 +465,7 @@ describe('admin content moderation', () => {
   });
 
   it('applies a bulk action', async () => {
-    const ids = listJobs({ limit: 2 }).map((job) => job.id);
+    const ids = (await listJobs({ limit: 2 })).map((job) => job.id);
 
     const result = await api('/api/admin/bulk', {
       method: 'POST',
@@ -476,7 +473,7 @@ describe('admin content moderation', () => {
     });
     assert.equal(result.body.affected, ids.length);
 
-    const featured = listJobs({ limit: 10, featured: true });
+    const featured = await listJobs({ limit: 10, featured: true });
     assert.equal(featured.length, ids.length);
   });
 

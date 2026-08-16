@@ -5,7 +5,19 @@
   "framework": null,
   "cleanUrls": true,
   "trailingSlash": false,
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30
+    },
+    "api/cron/*.js": {
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
     {
       "source": "/item/:id",
       "destination": "/item/_id.html"
@@ -15,6 +27,20 @@
       "destination": "/job/_id.html"
     }
   ],
+  "crons": [
+    {
+      "path": "/api/cron/ingest",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/digest",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/clean",
+      "schedule": "17 3 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/_expo/static/(.*)",
@@ -22,6 +48,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
         }
       ]
     },

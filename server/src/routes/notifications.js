@@ -19,33 +19,33 @@ const ensureSelf = (request, response, next) => {
 };
 
 /** What the next digest would contain, without sending it. */
-notificationsRouter.get('/notifications/:userId/preview', ensureSelf, (request, response) => {
-  const user = getUser(request.params.userId);
+notificationsRouter.get('/notifications/:userId/preview', ensureSelf, async (request, response) => {
+  const user = await getUser(request.params.userId);
   if (!user) return response.status(404).json({ error: 'User not found' });
 
-  const { items, jobs } = buildDigest(user, { sinceHours: 48 });
+  const { items, jobs } = await buildDigest(user, { sinceHours: 48 });
   return response.json({
     scheduledHour: user.profile.notifications?.digestHour ?? 8,
     currentUkHour: ukHour(),
     enabled: user.profile.notifications?.enabled !== false,
-    devices: devicesForUser(user.id).length,
+    devices: (await devicesForUser(user.id)).length,
     items,
     jobs,
   });
 });
 
-notificationsRouter.get('/notifications/:userId', ensureSelf, (request, response) => {
-  const user = getUser(request.params.userId);
+notificationsRouter.get('/notifications/:userId', ensureSelf, async (request, response) => {
+  const user = await getUser(request.params.userId);
   if (!user) return response.status(404).json({ error: 'User not found' });
-  return response.json({ notifications: notificationHistory(user.id) });
+  return response.json({ notifications: await notificationHistory(user.id) });
 });
 
 /** Fire this user's digest immediately — used by the "Send me a test" button. */
 notificationsRouter.post('/notifications/:userId/test', ensureSelf, async (request, response) => {
-  const user = getUser(request.params.userId);
+  const user = await getUser(request.params.userId);
   if (!user) return response.status(404).json({ error: 'User not found' });
 
-  const devices = devicesForUser(user.id);
+  const devices = await devicesForUser(user.id);
   if (devices.length === 0) {
     return response.status(409).json({
       error: 'No device registered for push. Open the app on a phone and allow notifications first.',
@@ -62,10 +62,10 @@ notificationsRouter.post('/notifications/:userId/push', ensureSelf, async (reque
     .object({ title: z.string().max(80), body: z.string().max(200), data: z.record(z.string(), z.unknown()).optional() })
     .parse(request.body);
 
-  const user = getUser(request.params.userId);
+  const user = await getUser(request.params.userId);
   if (!user) return response.status(404).json({ error: 'User not found' });
 
-  const devices = devicesForUser(user.id);
+  const devices = await devicesForUser(user.id);
   const result = await sendPush(
     devices.map((device) => ({ to: device.token, title: body.title, body: body.body, data: body.data })),
   );

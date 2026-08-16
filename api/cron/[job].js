@@ -43,6 +43,18 @@ const JOBS = {
     runs: await pruneRuns(30),
     sessions: await pruneExpiredSessions(),
   }),
+
+  /**
+   * Collection followed by housekeeping, in one invocation.
+   *
+   * Vercel's Hobby plan allows two cron jobs per account, and this project needs
+   * three things to happen daily. Pairing the two cheap ones keeps every job
+   * individually callable (useful for a manual run) while fitting the limit.
+   */
+  daily: async () => ({
+    ingest: await JOBS.ingest(),
+    clean: await JOBS.clean(),
+  }),
 };
 
 export default async function handler(request, response) {

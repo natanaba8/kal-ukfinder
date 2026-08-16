@@ -482,13 +482,20 @@ On Vercel the work is driven by Vercel Cron instead, declared in `vercel.json`:
 
 | Path | Schedule | Does |
 | --- | --- | --- |
-| `/api/cron/ingest` | `0 6 * * *` | Collects every source whose interval has elapsed |
+| `/api/cron/daily` | `0 6 * * *` | Collects every due source, then prunes old items, jobs, logs and sessions |
 | `/api/cron/digest` | `0 7 * * *` | Sends the daily briefing |
-| `/api/cron/clean` | `17 3 * * *` | Prunes old items, jobs, run logs and expired sessions |
 
-These are daily because Vercel's Hobby plan only allows daily cron. On Pro, change `0 6 * * *` to
-`0 */2 * * *` for two-hourly collection — the per-source intervals in the admin panel still apply, so a
-source set to 30 minutes is simply collected at the next cron run.
+**Two entries, not three, and both daily — this is a hard limit, not a preference.** Vercel's Hobby plan
+allows two cron jobs per account and fires them at most once a day. A third entry, or a sub-daily
+schedule, makes the whole deployment fail to build — which looks like a working site serving 404s on
+every `/api` route, because Vercel keeps serving the last deployment that did build.
+
+`daily` therefore runs collection and housekeeping in one invocation. `/api/cron/ingest` and
+`/api/cron/clean` still exist and can be called by hand; they are just not separately scheduled.
+
+On Pro, split them back out and change `0 6 * * *` to `0 */2 * * *` for two-hourly collection — the
+per-source intervals in the admin panel still apply, so a source set to 30 minutes is simply collected
+at the next cron run.
 
 `CRON_SECRET` is what stops anyone else calling those URLs. Vercel automatically sends
 `Authorization: Bearer $CRON_SECRET` on its own cron requests. **If the variable is not set the endpoints

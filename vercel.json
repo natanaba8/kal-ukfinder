@@ -16,7 +16,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index"
+      "destination": "/api"
     },
     {
       "source": "/item/:id",
@@ -29,16 +29,12 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/ingest",
+      "path": "/api/cron/daily",
       "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/digest",
       "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/cron/clean",
-      "schedule": "17 3 * * *"
     }
   ],
   "headers": [
